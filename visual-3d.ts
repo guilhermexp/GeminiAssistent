@@ -18,7 +18,6 @@ import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {FXAAShader} from 'three/addons/shaders/FXAAShader.js';
-import {fs as backdropFS, vs as backdropVS} from './backdrop-shader';
 import {vs as sphereVS} from './sphere-shader';
 
 /**
@@ -29,7 +28,6 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private inputAnalyser!: Analyser;
   private outputAnalyser!: Analyser;
   private camera!: THREE.PerspectiveCamera;
-  private backdrop!: THREE.Mesh;
   private composer!: EffectComposer;
   private sphere!: THREE.Mesh;
   private prevTime = 0;
@@ -80,23 +78,6 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
   private init() {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x100c14);
-
-    const backdrop = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(10, 5),
-      new THREE.RawShaderMaterial({
-        uniforms: {
-          resolution: {value: new THREE.Vector2(1, 1)},
-          rand: {value: 0},
-        },
-        vertexShader: backdropVS,
-        fragmentShader: backdropFS,
-        glslVersion: THREE.GLSL3,
-      }),
-    );
-    backdrop.material.side = THREE.BackSide;
-    scene.add(backdrop);
-    this.backdrop = backdrop;
 
     const camera = new THREE.PerspectiveCamera(
       75,
@@ -110,7 +91,9 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     const renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
+      alpha: true,
     });
+    renderer.setClearColor(0x000000, 0);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio / 1);
 
@@ -154,9 +137,9 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      5,
+      0.8,
       0.5,
-      0,
+      0.1,
     );
 
     const fxaaPass = new ShaderPass(FXAAShader);
@@ -174,7 +157,6 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       const dPR = renderer.getPixelRatio();
       const w = window.innerWidth;
       const h = window.innerHeight;
-      backdrop.material.uniforms.resolution.value.set(w * dPR, h * dPR);
       renderer.setSize(w, h);
       composer.setSize(w, h);
       fxaaPass.material.uniforms['resolution'].value.set(
@@ -198,10 +180,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     const t = performance.now();
     const dt = (t - this.prevTime) / (1000 / 60);
     this.prevTime = t;
-    const backdropMaterial = this.backdrop.material as THREE.RawShaderMaterial;
     const sphereMaterial = this.sphere.material as THREE.MeshStandardMaterial;
-
-    backdropMaterial.uniforms.rand.value = Math.random() * 10000;
 
     if (sphereMaterial.userData.shader) {
       // Use a damping factor for smoother transitions
