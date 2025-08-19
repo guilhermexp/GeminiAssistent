@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-const vs = `#define STANDARD
+export const vs = `#define STANDARD
 varying vec3 vViewPosition;
 #ifdef USE_TRANSMISSION
   varying vec3 vWorldPosition;
@@ -87,5 +87,3 @@ void main() {
     vWorldPosition = worldPosition.xyz;
   #endif
 }`;
-
-export {vs};
