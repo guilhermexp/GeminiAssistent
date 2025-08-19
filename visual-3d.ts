@@ -34,9 +34,9 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private sphere!: THREE.Mesh;
   private prevTime = 0;
   private rotation = new THREE.Vector3(0, 0, 0);
-
-  private renderer!: THREE.WebGLRenderer;
-  private fxaaPass!: ShaderPass;
+  private smoothedScale = 1;
+  private smoothedInput = new THREE.Vector4();
+  private smoothedOutput = new THREE.Vector4();
 
   private _outputNode!: AudioNode;
 
@@ -98,19 +98,21 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     scene.add(backdrop);
     this.backdrop = backdrop;
 
-    this.camera = new THREE.PerspectiveCamera(
+    const camera = new THREE.PerspectiveCamera(
       75,
-      this.canvas.clientWidth / this.canvas.clientHeight,
+      window.innerWidth / window.innerHeight,
       0.1,
       1000,
     );
-    this.camera.position.set(2, -2, 5);
+    camera.position.set(2, -2, 5);
+    this.camera = camera;
 
-    this.renderer = new THREE.WebGLRenderer({
+    const renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: !true,
+      antialias: true,
     });
-    this.renderer.setPixelRatio(window.devicePixelRatio / 1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio / 1);
 
     const geometry = new THREE.IcosahedronGeometry(1, 10);
 
@@ -121,7 +123,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       sphere.visible = true;
     });
 
-    const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
     const sphereMaterial = new THREE.MeshStandardMaterial({
@@ -148,53 +150,43 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     this.sphere = sphere;
 
-    const renderPass = new RenderPass(scene, this.camera);
+    const renderPass = new RenderPass(scene, camera);
 
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(this.canvas.clientWidth, this.canvas.clientHeight),
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
       5,
       0.5,
       0,
     );
 
-    this.fxaaPass = new ShaderPass(FXAAShader);
+    const fxaaPass = new ShaderPass(FXAAShader);
 
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(renderPass);
-    // this.composer.addPass(this.fxaaPass);
-    this.composer.addPass(bloomPass);
+    const composer = new EffectComposer(renderer);
+    composer.addPass(renderPass);
+    // composer.addPass(fxaaPass);
+    composer.addPass(bloomPass);
+
+    this.composer = composer;
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      const dPR = renderer.getPixelRatio();
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      backdrop.material.uniforms.resolution.value.set(w * dPR, h * dPR);
+      renderer.setSize(w, h);
+      composer.setSize(w, h);
+      fxaaPass.material.uniforms['resolution'].value.set(
+        1 / (w * dPR),
+        1 / (h * dPR),
+      );
+    }
+
+    window.addEventListener('resize', onWindowResize);
+    onWindowResize();
 
     this.animation();
-  }
-
-  private resize() {
-    if (!this.canvas || !this.camera || !this.renderer || !this.composer) {
-      return;
-    }
-
-    const width = this.canvas.clientWidth;
-    const height = this.canvas.clientHeight;
-    const needsResize =
-      this.renderer.domElement.width !== width ||
-      this.renderer.domElement.height !== height;
-
-    if (needsResize) {
-      this.renderer.setSize(width, height, false);
-      this.composer.setSize(width, height);
-
-      this.camera.aspect = width / height;
-      this.camera.updateProjectionMatrix();
-
-      const dPR = this.renderer.getPixelRatio();
-      (this.backdrop.material as THREE.RawShaderMaterial).uniforms.resolution.value.set(
-        width * dPR,
-        height * dPR,
-      );
-      this.fxaaPass.material.uniforms['resolution'].value.set(
-        1 / (width * dPR),
-        1 / (height * dPR),
-      );
-    }
   }
 
   private animation() {
@@ -212,10 +204,15 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     backdropMaterial.uniforms.rand.value = Math.random() * 10000;
 
     if (sphereMaterial.userData.shader) {
-      this.sphere.scale.setScalar(
-        1 + (0.2 * this.outputAnalyser.data[1]) / 255,
-      );
+      // Use a damping factor for smoother transitions
+      const damping = 0.1;
 
+      // Smoothly update the sphere's scale
+      const targetScale = 1 + (0.2 * this.outputAnalyser.data[1]) / 255;
+      this.smoothedScale += (targetScale - this.smoothedScale) * damping;
+      this.sphere.scale.setScalar(this.smoothedScale);
+
+      // Camera rotation remains cumulative for a fluid motion
       const f = 0.001;
       this.rotation.x += (dt * f * 0.5 * this.outputAnalyser.data[1]) / 255;
       this.rotation.z += (dt * f * 0.5 * this.inputAnalyser.data[1]) / 255;
@@ -233,19 +230,30 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       this.camera.position.copy(vector);
       this.camera.lookAt(this.sphere.position);
 
-      sphereMaterial.userData.shader.uniforms.time.value +=
-        (dt * 0.1 * this.outputAnalyser.data[0]) / 255;
-      sphereMaterial.userData.shader.uniforms.inputData.value.set(
+      // Smoothly update shader uniforms for less jarring distortion
+      const targetInputData = new THREE.Vector4(
         (1 * this.inputAnalyser.data[0]) / 255,
         (0.1 * this.inputAnalyser.data[1]) / 255,
         (10 * this.inputAnalyser.data[2]) / 255,
         0,
       );
-      sphereMaterial.userData.shader.uniforms.outputData.value.set(
+      this.smoothedInput.lerp(targetInputData, damping);
+
+      const targetOutputData = new THREE.Vector4(
         (2 * this.outputAnalyser.data[0]) / 255,
         (0.1 * this.outputAnalyser.data[1]) / 255,
         (10 * this.outputAnalyser.data[2]) / 255,
         0,
+      );
+      this.smoothedOutput.lerp(targetOutputData, damping);
+
+      sphereMaterial.userData.shader.uniforms.time.value +=
+        (dt * 0.1 * this.outputAnalyser.data[0]) / 255;
+      sphereMaterial.userData.shader.uniforms.inputData.value.copy(
+        this.smoothedInput,
+      );
+      sphereMaterial.userData.shader.uniforms.outputData.value.copy(
+        this.smoothedOutput,
       );
     }
 
@@ -255,11 +263,6 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   protected firstUpdated() {
     this.canvas = this.shadowRoot!.querySelector('canvas') as HTMLCanvasElement;
     this.init();
-
-    const resizeObserver = new ResizeObserver(() => {
-      this.resize();
-    });
-    resizeObserver.observe(this);
   }
 
   protected render() {

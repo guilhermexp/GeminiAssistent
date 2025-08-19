@@ -8,26 +8,28 @@ import {GoogleGenAI, LiveServerMessage, Modality, Session} from '@google/genai';
 import {LitElement, css, html} from 'lit';
 import {customElement, state} from 'lit/decorators.js';
 
-import {createBlob, decode, decodeAudioData} from './utils';
-import './visual-3d';
-import {AnalysisService} from './analysis-service';
 import type {
   Analysis,
   ProcessingState,
   SearchResult,
   TimelineEvent,
   AnalysisCallbacks,
-  AnalysisResult,
 } from './types';
 
-// Import the new sub-components
-import './analysis-form';
-import './media-controls';
-import './analysis-modal';
-import './timeline-modal';
+// Import the new shell and view components
+import './assistant-shell';
+import './assistant-view';
+
+// Import sub-components that are passed as slots or used directly
+import './analysis-modal'; // for gdm-analysis-panel
+
+// Refactored logic handlers
+import {ContentAnalysisManager} from './content-analysis-manager';
+import {generateCompositeSystemInstruction} from './system-instruction-builder';
+import {AudioService} from './audio-service';
 
 // =================================================================
-// MAIN LIT COMPONENT
+// MAIN LIT COMPONENT (NOW ACTING AS A CONTROLLER)
 // =================================================================
 @customElement('gdm-live-audio')
 export class GdmLiveAudio extends LitElement {
@@ -46,21 +48,13 @@ export class GdmLiveAudio extends LitElement {
   @state() analyses: Analysis[] = [];
   @state() systemInstruction =
     'Você é um assistente de voz prestativo que fala português do Brasil. Você não tem a capacidade de pesquisar na internet.';
+  @state() inputNode?: GainNode;
+  @state() outputNode?: GainNode;
 
   private client: GoogleGenAI;
   private session: Session;
-  private analysisService: AnalysisService;
-  private inputAudioContext = new (window.AudioContext ||
-    (window as any).webkitAudioContext)({sampleRate: 16000});
-  private outputAudioContext = new (window.AudioContext ||
-    (window as any).webkitAudioContext)({sampleRate: 24000});
-  @state() inputNode = this.inputAudioContext.createGain();
-  @state() outputNode = this.outputAudioContext.createGain();
-  private nextStartTime = 0;
-  private mediaStream: MediaStream;
-  private sourceNode: AudioBufferSourceNode;
-  private scriptProcessorNode: ScriptProcessorNode;
-  private sources = new Set<AudioBufferSourceNode>();
+  private contentAnalysisManager: ContentAnalysisManager;
+  private audioService: AudioService;
 
   static styles = css`
     :host {
@@ -68,109 +62,28 @@ export class GdmLiveAudio extends LitElement {
       height: 100vh;
       display: block;
     }
-
-    .main-container {
-      display: flex;
-      width: 100%;
-      height: 100%;
-    }
-
-    .analysis-panel-container {
-      width: 0;
-      flex-shrink: 0;
-      overflow: hidden;
-      transition: width 0.4s ease-in-out;
-    }
-
-    .main-container.panel-open .analysis-panel-container {
-      width: 40%;
-      max-width: 600px;
-    }
-
-    .assistant-view {
-      flex-grow: 1;
-      position: relative;
-      height: 100%;
-      overflow: hidden; /* Canvas might overflow otherwise */
-    }
-
-    #status {
-      position: absolute;
-      bottom: calc(2vh + 100px); /* Position above the control bar */
-      left: 0;
-      right: 0;
-      z-index: 10;
-      text-align: center;
-      color: rgba(255, 255, 255, 0.7);
-      font-family: sans-serif;
-      transition: color 0.3s ease;
-      text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
-      pointer-events: none; /* Avoid interfering with controls */
-    }
-
-    #status.error {
-      color: #ff8a80; /* A less harsh red */
-    }
-
-    .bottom-container {
-      position: absolute;
-      bottom: 2vh;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 90%;
-      max-width: 800px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      z-index: 10;
-      align-items: center;
-    }
-
-    .search-results {
-      background: rgba(0, 0, 0, 0.3);
-      padding: 8px 16px;
-      border-radius: 12px;
-      font-family: sans-serif;
-      font-size: 14px;
-      color: #ccc;
-      max-width: 100%;
-      backdrop-filter: blur(10px);
-    }
-
-    .search-results p {
-      margin: 0 0 8px 0;
-      font-weight: bold;
-    }
-
-    .search-results ul {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      max-height: 100px;
-      overflow-y: auto;
-    }
-
-    .search-results li {
-      margin-bottom: 4px;
-    }
-
-    .search-results a {
-      color: #87cefa;
-      text-decoration: none;
-    }
-    .search-results a:hover {
-      text-decoration: underline;
-    }
   `;
 
   constructor() {
     super();
-    this.initClient();
-    this.analysisService = new AnalysisService(this.client);
-  }
+    this.client = new GoogleGenAI({
+      apiKey: process.env.API_KEY,
+    });
+    this.contentAnalysisManager = new ContentAnalysisManager(this.client);
+    this.audioService = new AudioService({
+      onInputAudio: (audioBlob) => {
+        if (this.session && this.isRecording) {
+          this.session.sendRealtimeInput({media: audioBlob});
+        }
+      },
+    });
 
-  private initAudio() {
-    this.nextStartTime = this.outputAudioContext.currentTime;
+    // Expose audio nodes for the visualizer
+    this.inputNode = this.audioService.inputNode;
+    this.outputNode = this.audioService.outputNode;
+
+    this.logEvent('Assistente inicializado.', 'info');
+    this.initSession();
   }
 
   private logEvent(message: string, type: TimelineEvent['type']) {
@@ -181,19 +94,6 @@ export class GdmLiveAudio extends LitElement {
     });
     const newEvent: TimelineEvent = {timestamp, message, type};
     this.timelineEvents = [newEvent, ...this.timelineEvents];
-  }
-
-  private async initClient() {
-    this.logEvent('Assistente inicializado.', 'info');
-    this.initAudio();
-
-    this.client = new GoogleGenAI({
-      apiKey: process.env.API_KEY,
-    });
-
-    this.outputNode.connect(this.outputAudioContext.destination);
-
-    this.initSession();
   }
 
   private async initSession(newSystemInstruction?: string) {
@@ -226,32 +126,7 @@ export class GdmLiveAudio extends LitElement {
               message.serverContent?.modelTurn?.parts[0]?.inlineData;
 
             if (audio) {
-              if (this.sources.size === 0) {
-                this.nextStartTime =
-                  this.outputAudioContext.currentTime + 0.1;
-              }
-
-              this.nextStartTime = Math.max(
-                this.nextStartTime,
-                this.outputAudioContext.currentTime,
-              );
-
-              const audioBuffer = await decodeAudioData(
-                decode(audio.data),
-                this.outputAudioContext,
-                24000,
-                1,
-              );
-              const source = this.outputAudioContext.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(this.outputNode);
-              source.addEventListener('ended', () => {
-                this.sources.delete(source);
-              });
-
-              source.start(this.nextStartTime);
-              this.nextStartTime += audioBuffer.duration;
-              this.sources.add(source);
+              this.audioService.playAudioChunk(audio.data);
             }
 
             const grounding = (message.serverContent as any)?.candidates?.[0]
@@ -264,11 +139,7 @@ export class GdmLiveAudio extends LitElement {
 
             const interrupted = message.serverContent?.interrupted;
             if (interrupted) {
-              for (const source of this.sources.values()) {
-                source.stop();
-                this.sources.delete(source);
-              }
-              this.nextStartTime = 0;
+              this.audioService.interruptPlayback();
             }
           },
           onerror: (e: ErrorEvent) => {
@@ -317,72 +188,25 @@ export class GdmLiveAudio extends LitElement {
     }
     this.searchResults = [];
 
-    this.inputAudioContext.resume();
-
     this.updateStatus('Pedindo acesso ao microfone...');
 
     try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      });
-
-      this.updateStatus('Acesso ao microfone concedido. Iniciando captura...');
-
-      this.sourceNode = this.inputAudioContext.createMediaStreamSource(
-        this.mediaStream,
-      );
-      this.sourceNode.connect(this.inputNode);
-
-      const bufferSize = 256;
-      this.scriptProcessorNode = this.inputAudioContext.createScriptProcessor(
-        bufferSize,
-        1,
-        1,
-      );
-
-      this.scriptProcessorNode.onaudioprocess = (audioProcessingEvent) => {
-        if (!this.isRecording) return;
-
-        const inputBuffer = audioProcessingEvent.inputBuffer;
-        const pcmData = inputBuffer.getChannelData(0);
-
-        this.session.sendRealtimeInput({media: createBlob(pcmData)});
-      };
-
-      this.sourceNode.connect(this.scriptProcessorNode);
-      this.scriptProcessorNode.connect(this.inputAudioContext.destination);
-
+      await this.audioService.start();
       this.isRecording = true;
       this.updateStatus('🔴 Gravando... Fale agora.');
       this.logEvent('Gravação iniciada.', 'record');
     } catch (err) {
       console.error('Error starting recording:', err);
       this.updateError(`Erro ao iniciar gravação: ${(err as Error).message}`);
-      this.stopRecording();
+      this.isRecording = false; // Ensure state is correct on failure
     }
   }
 
   private stopRecording() {
-    if (!this.isRecording && !this.mediaStream && !this.inputAudioContext)
-      return;
-
+    if (!this.isRecording) return;
     this.updateStatus('Parando gravação...');
-
+    this.audioService.stop();
     this.isRecording = false;
-
-    if (this.scriptProcessorNode && this.sourceNode && this.inputAudioContext) {
-      this.scriptProcessorNode.disconnect();
-      this.sourceNode.disconnect();
-    }
-
-    this.scriptProcessorNode = null;
-    this.sourceNode = null;
-
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
-      this.mediaStream = null;
-    }
     this.logEvent('Gravação parada.', 'record');
     this.updateStatus('Gravação parada. Clique para começar de novo.');
   }
@@ -401,110 +225,6 @@ export class GdmLiveAudio extends LitElement {
     if (!active && !isError) {
       this.updateStatus('Pronto para conversar.');
     }
-  }
-
-  private getSingleSystemInstruction(analysis: Analysis): string {
-    const {title, summary, persona, type} = analysis;
-    if (persona === 'analyst') {
-      return `Você é um assistente de voz e analista de dados especialista. Seu foco é o conteúdo da seguinte planilha/documento: "${title}".
-Você já realizou uma análise preliminar e tem o seguinte resumo como seu conhecimento base.
---- INÍCIO DO CONHECIMENTO ---
-${summary}
---- FIM DO CONHECIMENTO ---
-Seu papel é:
-1. Responder perguntas sobre os dados usando o conhecimento acima. Seja preciso e quantitativo sempre que possível.
-2. Manter um tom de analista: claro, objetivo e focado nos dados. Fale em português do Brasil.
-3. Se a pergunta for sobre algo não contido nos dados, indique que a informação não está na planilha. Você não pode pesquisar informações externas.
-4. Não invente dados; atenha-se estritamente ao conhecimento fornecido.`;
-    }
-
-    if (type === 'github') {
-      return `Você é um assistente de voz e especialista no repositório do GitHub: "${title}".
-Você já analisou o README e a estrutura de arquivos do projeto. Seu conhecimento base é o seguinte resumo:
---- INÍCIO DO CONHECIMENTO ---
-${summary}
---- FIM DO CONHECIMENTO ---
-Seu papel é:
-1. Responder perguntas sobre o propósito, tecnologia, estrutura e como usar o repositório.
-2. Manter um tom técnico e prestativo, como um engenheiro de software sênior, falando em português do Brasil.
-3. Se a informação não estiver no seu conhecimento, indique que a resposta não pode ser encontrada no resumo do repositório. Você não pode pesquisar na web.
-4. Não invente informações; atenha-se estritamente ao seu conhecimento do repositório.`;
-    } else if (type === 'youtube' || type === 'video') {
-      return `Você é um assistente de voz inteligente especializado no vídeo: "${title}".
-Você já assistiu ao vídeo e analisou tanto o áudio quanto os elementos visuais. Seu conhecimento base é o seguinte resumo:
---- INÍCIO DO CONHECIMENTO ---
-${summary}
---- FIM DO CONHECIMENTO ---
-Seu papel é:
-1. Responder a perguntas sobre o vídeo. Isso inclui o conteúdo falado (tópicos, ideias) E detalhes visuais (cores, pessoas, objetos, texto na tela, ações).
-2. Manter um tom conversacional e natural em português do Brasil.
-3. Se a informação não estiver no seu conhecimento (o resumo do vídeo), indique que a resposta não se encontra no vídeo. Você não pode pesquisar na web.
-4. Não invente informações; atenha-se estritamente ao seu conhecimento do vídeo.`;
-    } else {
-      return `Você é um assistente de voz inteligente especializado no seguinte conteúdo: "${title}".
-Você já analisou o conteúdo e tem o seguinte resumo detalhado como seu conhecimento.
---- INÍCIO DO CONHECIMENTO ---
-${summary}
---- FIM DO CONHECIMENTO ---
-Seu papel é:
-1. Responder perguntas sobre o conteúdo usando o conhecimento acima.
-2. Manter um tom conversacional e natural em português do Brasil.
-3. Se a informação não estiver no seu conhecimento, indique que a resposta não se encontra no conteúdo original. Você não pode pesquisar na web.
-4. Não invente informações; atenha-se ao conhecimento fornecido.`;
-    }
-  }
-
-  private generateCompositeSystemInstruction(): string {
-    if (this.analyses.length === 0) {
-      return 'Você é um assistente de voz prestativo que fala português do Brasil. Você não tem a capacidade de pesquisar na internet.';
-    }
-
-    if (this.analyses.length === 1) {
-      return this.getSingleSystemInstruction(this.analyses[0]);
-    }
-
-    let instruction = `Você é um assistente de voz especialista com conhecimento de múltiplas fontes. Abaixo estão os resumos dos conteúdos que você analisou. Responda às perguntas com base estritamente nessas informações. Ao responder, se possível, mencione a fonte (título) da qual você está extraindo a informação.\n\n`;
-    this.analyses.forEach((analysis, index) => {
-      instruction += `--- INÍCIO DA FONTE ${index + 1}: "${analysis.title}" (${
-        analysis.type
-      }) ---\n`;
-      instruction += `${analysis.summary}\n`;
-      instruction += `--- FIM DA FONTE ${index + 1} ---\n\n`;
-    });
-    instruction += `Se a pergunta for sobre algo não contido nas fontes, indique que a informação não está disponível. Você não pode pesquisar informações externas. Fale em português do Brasil.`;
-    return instruction;
-  }
-
-  private async generateAnalysisAndSetupSession(result: AnalysisResult) {
-    const {summary, title, source, persona, type} = result;
-    this.logEvent('Análise concluída com sucesso.', 'success');
-
-    this.setProcessingState(
-      true,
-      'Análise recebida. Configurando assistente...',
-      95,
-    );
-
-    const newAnalysis: Analysis = {
-      id: Date.now().toString(),
-      title: title,
-      source: source,
-      summary: summary,
-      type: type,
-      persona: persona,
-    };
-
-    this.analyses = [...this.analyses, newAnalysis];
-    this.logEvent(`Contexto adicionado: "${title}"`, 'success');
-
-    const compositeInstruction = this.generateCompositeSystemInstruction();
-    await this.initSession(compositeInstruction);
-
-    const titleToShow =
-      this.analyses.length > 1
-        ? 'Múltiplos contextos'
-        : this.analyses[0].title;
-    this.updateStatus(`Pronto! Pergunte sobre "${titleToShow}"`);
   }
 
   async handleAnalysisSubmit(e: CustomEvent) {
@@ -527,13 +247,25 @@ Seu papel é:
     };
 
     try {
-      const result = await this.analysisService.analyze(
-        urlOrTopic,
-        file,
-        callbacks,
-      );
+      const {newAnalyses, newSystemInstruction, newAnalysis} =
+        await this.contentAnalysisManager.handleAnalysisRequest(
+          urlOrTopic,
+          file,
+          this.analyses,
+          callbacks,
+        );
 
-      await this.generateAnalysisAndSetupSession(result);
+      this.logEvent('Análise concluída com sucesso.', 'success');
+      this.analyses = newAnalyses;
+      this.logEvent(`Contexto adicionado: "${newAnalysis.title}"`, 'success');
+
+      await this.initSession(newSystemInstruction);
+
+      const titleToShow =
+        this.analyses.length > 1
+          ? 'Múltiplos contextos'
+          : this.analyses[0].title;
+      this.updateStatus(`Pronto! Pergunte sobre "${titleToShow}"`);
     } catch (err) {
       console.error(err);
       this.updateError(`Erro na análise: ${(err as Error).message}`);
@@ -551,7 +283,9 @@ Seu papel é:
     if (this.analyses.length === 0) {
       this.reset();
     } else {
-      const compositeInstruction = this.generateCompositeSystemInstruction();
+      const compositeInstruction = generateCompositeSystemInstruction(
+        this.analyses,
+      );
       await this.initSession(compositeInstruction);
       this.updateStatus('Contexto removido. Sessão atualizada.');
     }
@@ -562,77 +296,43 @@ Seu papel é:
     this.searchResults = [];
     this.initSession(); // Re-initializes with default prompt
     this.updateStatus('Sessão reiniciada.');
-    this.logEvent('Sessão reiniciada e todos os contextos foram limpos.', 'info');
+    this.logEvent(
+      'Sessão reiniciada e todos os contextos foram limpos.',
+      'info',
+    );
   }
 
   render() {
     return html`
-      <div class="main-container ${this.showAnalysisPanel ? 'panel-open' : ''}">
-        <div class="analysis-panel-container">
-          <gdm-analysis-panel
-            .show=${this.showAnalysisPanel}
-            .analyses=${this.analyses}
-            @close=${() =>
-              (this.showAnalysisPanel = false)}></gdm-analysis-panel>
-        </div>
+      <gdm-assistant-shell .panelOpen=${this.showAnalysisPanel}>
+        <gdm-analysis-panel
+          slot="analysis-panel"
+          .show=${this.showAnalysisPanel}
+          .analyses=${this.analyses}
+          @close=${() => (this.showAnalysisPanel = false)}></gdm-analysis-panel>
 
-        <div class="assistant-view">
-          <gdm-timeline-modal
-            .show=${this.showTimelineModal}
-            .events=${this.timelineEvents}
-            @close=${() =>
-              (this.showTimelineModal = false)}></gdm-timeline-modal>
-
-          <gdm-analysis-form
-            .analyses=${this.analyses}
-            .processingState=${this.processingState}
-            @analysis-submit=${this.handleAnalysisSubmit}
-            @analysis-remove=${this.removeAnalysis}></gdm-analysis-form>
-
-          <div id="status" class=${this.error ? 'error' : ''}>
-            ${this.error || this.status}
-          </div>
-
-          <div class="bottom-container">
-            ${this.searchResults.length > 0
-              ? html`
-                  <div class="search-results">
-                    <p>Fontes da pesquisa:</p>
-                    <ul>
-                      ${this.searchResults.map(
-                        (result) => html`
-                          <li>
-                            <a
-                              href=${result.uri}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              >${result.title || result.uri}</a
-                            >
-                          </li>
-                        `,
-                      )}
-                    </ul>
-                  </div>
-                `
-              : ''}
-
-            <gdm-media-controls
-              .isRecording=${this.isRecording}
-              .hasAnalyses=${this.analyses.length > 0}
-              .hasTimelineEvents=${this.timelineEvents.length > 0}
-              @start-recording=${this.startRecording}
-              @stop-recording=${this.stopRecording}
-              @reset=${this.reset}
-              @show-analysis=${() =>
-                (this.showAnalysisPanel = !this.showAnalysisPanel)}
-              @show-timeline=${() =>
-                (this.showTimelineModal = true)}></gdm-media-controls>
-          </div>
-          <gdm-live-audio-visuals-3d
-            .inputNode=${this.inputNode}
-            .outputNode=${this.outputNode}></gdm-live-audio-visuals-3d>
-        </div>
-      </div>
+        <gdm-assistant-view
+          slot="assistant-view"
+          .status=${this.status}
+          .error=${this.error}
+          .searchResults=${this.searchResults}
+          .inputNode=${this.inputNode}
+          .outputNode=${this.outputNode}
+          .isRecording=${this.isRecording}
+          .analyses=${this.analyses}
+          .showTimelineModal=${this.showTimelineModal}
+          .timelineEvents=${this.timelineEvents}
+          .processingState=${this.processingState}
+          @analysis-submit=${this.handleAnalysisSubmit}
+          @analysis-remove=${this.removeAnalysis}
+          @start-recording=${this.startRecording}
+          @stop-recording=${this.stopRecording}
+          @reset=${this.reset}
+          @show-analysis=${() => (this.showAnalysisPanel = !this.showAnalysisPanel)}
+          @show-timeline=${() => (this.showTimelineModal = true)}
+          @close-timeline=${() => (this.showTimelineModal = false)}>
+        </gdm-assistant-view>
+      </gdm-assistant-shell>
     `;
   }
 }

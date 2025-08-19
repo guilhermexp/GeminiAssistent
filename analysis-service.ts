@@ -292,23 +292,28 @@ Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre
     const readmeResponse = await fetchWithRetry(
       `https://api.github.com/repos/${owner}/${repo}/readme`,
     );
-    if (readmeResponse.status === 404) {
+
+    let readmeContent = '';
+    if (readmeResponse.ok) {
+      const readmeData = await readmeResponse.json();
+      readmeContent = atob((readmeData.content || '').replace(/\s/g, ''));
+    } else if (readmeResponse.status !== 404) {
+      // If it's not 404, and not ok, then it's an actual error.
+      // A 404 just means no README, which is fine.
       throw new Error(
-        `Repositório não encontrado ou é privado: ${owner}/${repo}.`,
+        `Não foi possível buscar o README do repositório ${owner}/${repo}. Status: ${readmeResponse.status}`,
       );
     }
-    if (!readmeResponse.ok) {
-      throw new Error(
-        `Não foi possível buscar o README do repositório ${owner}/${repo}.`,
-      );
-    }
-    const readmeData = await readmeResponse.json();
-    const readmeContent = atob(readmeData.content);
 
     setProcessingState(true, `Buscando estrutura de arquivos...`, 40);
     const repoInfoResponse = await fetchWithRetry(
       `https://api.github.com/repos/${owner}/${repo}`,
     );
+    if (repoInfoResponse.status === 404) {
+      throw new Error(
+        `Repositório não encontrado ou é privado: ${owner}/${repo}.`,
+      );
+    }
     if (!repoInfoResponse.ok) {
       throw new Error(
         `Não foi possível buscar informações do repositório ${owner}/${repo}.`,
@@ -372,15 +377,17 @@ ${readmeContent}
 --- ESTRUTURA DE ARQUIVOS ---
 ${fileTreeText}
 `;
-    const contents = {parts: [{text: analysisPrompt}]};
-    const generateContentConfig = {
+    const response = await this.client.models.generateContent({
       model: 'gemini-2.5-flash',
-      tools: [{googleSearch: {}}],
-    };
-    const summary = await this.analyzeContentAndGenerateSummary(
-      contents,
-      generateContentConfig,
-    );
+      contents: analysisPrompt,
+      config: {
+        tools: [{googleSearch: {}}],
+      },
+    });
+    const summary = response.text;
+    if (!summary?.trim()) {
+      throw new Error('A análise do GitHub retornou um resultado vazio.');
+    }
     return {
       summary,
       title: contentTitle,
@@ -492,15 +499,17 @@ Após a pesquisa, sintetize os resultados em uma análise estruturada e detalhad
 - **Conclusão**: Um resumo dos pontos mais importantes.
 
 Responda em português.`;
-    const contents = {parts: [{text: analysisPrompt}]};
-    const generateContentConfig = {
+    const response = await this.client.models.generateContent({
       model: 'gemini-2.5-flash',
-      tools: [{googleSearch: {}}],
-    };
-    const summary = await this.analyzeContentAndGenerateSummary(
-      contents,
-      generateContentConfig,
-    );
+      contents: analysisPrompt,
+      config: {
+        tools: [{googleSearch: {}}],
+      },
+    });
+    const summary = response.text;
+    if (!summary?.trim()) {
+      throw new Error('A pesquisa aprofundada retornou um resultado vazio.');
+    }
     return {
       summary,
       title: contentTitle,
