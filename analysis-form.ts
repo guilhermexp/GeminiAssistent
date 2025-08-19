@@ -17,6 +17,8 @@ export class GdmAnalysisForm extends LitElement {
 
   @state() private urlInput = '';
   @state() private selectedFile: File | null = null;
+  @state() private animatedProgress = 0;
+  private progressAnimationId: number | null = null;
 
   static styles = css`
     .input-container {
@@ -54,6 +56,7 @@ export class GdmAnalysisForm extends LitElement {
       outline: none;
       height: 40px;
       box-sizing: border-box;
+      min-width: 0;
     }
 
     .input-form button {
@@ -71,6 +74,7 @@ export class GdmAnalysisForm extends LitElement {
       align-items: center;
       justify-content: center;
       padding: 0 16px;
+      flex-shrink: 0;
     }
 
     .input-form button.icon-button {
@@ -97,7 +101,6 @@ export class GdmAnalysisForm extends LitElement {
       overflow: hidden;
       transition: all 0.2s ease;
       min-width: 130px;
-      flex-shrink: 0;
     }
 
     .input-form button[type='submit']:disabled {
@@ -128,6 +131,7 @@ export class GdmAnalysisForm extends LitElement {
       align-items: center;
       color: white;
       width: 100%;
+      overflow: hidden;
     }
 
     .progress-text .loader {
@@ -238,6 +242,42 @@ export class GdmAnalysisForm extends LitElement {
     }
   `;
 
+  willUpdate(changedProperties: Map<string, unknown>) {
+    if (changedProperties.has('processingState')) {
+      this.animateProgress(this.processingState.progress);
+    }
+  }
+
+  private animateProgress(targetProgress: number) {
+    if (this.progressAnimationId) {
+      cancelAnimationFrame(this.progressAnimationId);
+    }
+
+    const startProgress = this.animatedProgress;
+    const duration = 300; // ms
+    let startTime: number | null = null;
+
+    const step = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const elapsed = timestamp - startTime;
+      const progress = Math.min(
+        (elapsed / duration) * (targetProgress - startProgress) +
+          startProgress,
+        targetProgress,
+      );
+
+      this.animatedProgress = Math.round(progress);
+
+      if (elapsed < duration) {
+        this.progressAnimationId = requestAnimationFrame(step);
+      } else {
+        this.animatedProgress = targetProgress;
+      }
+    };
+
+    this.progressAnimationId = requestAnimationFrame(step);
+  }
+
   private handleUrlInputChange(e: Event) {
     this.urlInput = (e.target as HTMLInputElement).value;
     if (this.selectedFile) {
@@ -334,7 +374,7 @@ export class GdmAnalysisForm extends LitElement {
               ? html`
                   <div
                     class="progress-bar"
-                    style="width: ${this.processingState.progress}%"></div>
+                    style="width: ${this.animatedProgress}%"></div>
                   <div class="progress-text">
                     <div class="loader"></div>
                     <span
@@ -343,7 +383,7 @@ export class GdmAnalysisForm extends LitElement {
                       >${this.processingState.step}</span
                     >
                     <span class="progress-percent"
-                      >${this.processingState.progress}%</span
+                      >${this.animatedProgress}%</span
                     >
                   </div>
                 `

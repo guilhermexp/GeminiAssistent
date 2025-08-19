@@ -460,7 +460,11 @@ ${fileTreeText}
     const {setProcessingState, logEvent} = callbacks;
     const contentTitle = topic;
     const contentSource = 'Pesquisa Aprofundada na Web';
-    setProcessingState(true, `Pesquisando sobre "${topic}"...`, 50);
+
+    const displayTopic =
+      topic.length > 25 ? `${topic.substring(0, 22)}...` : topic;
+    setProcessingState(true, `Pesquisando: "${displayTopic}"`, 50);
+
     logEvent(`Iniciando pesquisa sobre: "${contentTitle}"`, 'process');
     const analysisPrompt = `Realize uma pesquisa aprofundada e abrangente sobre o seguinte tópico: "${contentTitle}".
 Sua tarefa é atuar como um pesquisador especialista. Use o Google Search para reunir informações de diversas fontes confiáveis.

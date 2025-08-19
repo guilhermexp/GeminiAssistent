@@ -38,7 +38,7 @@ export class GdmLiveAudio extends LitElement {
     step: '',
     progress: 0,
   };
-  @state() showAnalysisModal = false;
+  @state() showAnalysisPanel = false;
   @state() showTimelineModal = false;
   @state() searchResults: SearchResult[] = [];
   @state() timelineEvents: TimelineEvent[] = [];
@@ -62,6 +62,37 @@ export class GdmLiveAudio extends LitElement {
   private sources = new Set<AudioBufferSourceNode>();
 
   static styles = css`
+    :host {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    .main-container {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+
+    .analysis-panel-container {
+      width: 0;
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: width 0.4s ease-in-out;
+    }
+
+    .main-container.panel-open .analysis-panel-container {
+      width: 40%;
+      max-width: 600px;
+    }
+
+    .assistant-view {
+      flex-grow: 1;
+      position: relative;
+      height: 100%;
+      overflow: hidden; /* Canvas might overflow otherwise */
+    }
+
     #status {
       position: absolute;
       bottom: calc(2vh + 100px); /* Position above the control bar */
@@ -545,66 +576,72 @@ Seu papel é:
 
   render() {
     return html`
-      <div>
-        <gdm-analysis-modal
-          .show=${this.showAnalysisModal}
-          .analyses=${this.analyses}
-          @close=${() => (this.showAnalysisModal = false)}></gdm-analysis-modal>
-
-        <gdm-timeline-modal
-          .show=${this.showTimelineModal}
-          .events=${this.timelineEvents}
-          @close=${() =>
-            (this.showTimelineModal = false)}></gdm-timeline-modal>
-
-        <gdm-analysis-form
-          .analyses=${this.analyses}
-          .processingState=${this.processingState}
-          @analysis-submit=${this.handleAnalysisSubmit}
-          @analysis-remove=${this.removeAnalysis}></gdm-analysis-form>
-
-        <div id="status" class=${this.error ? 'error' : ''}>
-          ${this.error || this.status}
+      <div class="main-container ${this.showAnalysisPanel ? 'panel-open' : ''}">
+        <div class="analysis-panel-container">
+          <gdm-analysis-panel
+            .show=${this.showAnalysisPanel}
+            .analyses=${this.analyses}
+            @close=${() =>
+              (this.showAnalysisPanel = false)}></gdm-analysis-panel>
         </div>
 
-        <div class="bottom-container">
-          ${this.searchResults.length > 0
-            ? html`
-                <div class="search-results">
-                  <p>Fontes da pesquisa:</p>
-                  <ul>
-                    ${this.searchResults.map(
-                      (result) => html`
-                        <li>
-                          <a
-                            href=${result.uri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            >${result.title || result.uri}</a
-                          >
-                        </li>
-                      `,
-                    )}
-                  </ul>
-                </div>
-              `
-            : ''}
+        <div class="assistant-view">
+          <gdm-timeline-modal
+            .show=${this.showTimelineModal}
+            .events=${this.timelineEvents}
+            @close=${() =>
+              (this.showTimelineModal = false)}></gdm-timeline-modal>
 
-          <gdm-media-controls
-            .isRecording=${this.isRecording}
-            .hasAnalyses=${this.analyses.length > 0}
-            .hasTimelineEvents=${this.timelineEvents.length > 0}
-            @start-recording=${this.startRecording}
-            @stop-recording=${this.stopRecording}
-            @reset=${this.reset}
-            @show-analysis=${() => (this.showAnalysisModal = true)}
-            @show-timeline=${() =>
-              (this.showTimelineModal = true)}></gdm-media-controls>
+          <gdm-analysis-form
+            .analyses=${this.analyses}
+            .processingState=${this.processingState}
+            @analysis-submit=${this.handleAnalysisSubmit}
+            @analysis-remove=${this.removeAnalysis}></gdm-analysis-form>
+
+          <div id="status" class=${this.error ? 'error' : ''}>
+            ${this.error || this.status}
+          </div>
+
+          <div class="bottom-container">
+            ${this.searchResults.length > 0
+              ? html`
+                  <div class="search-results">
+                    <p>Fontes da pesquisa:</p>
+                    <ul>
+                      ${this.searchResults.map(
+                        (result) => html`
+                          <li>
+                            <a
+                              href=${result.uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              >${result.title || result.uri}</a
+                            >
+                          </li>
+                        `,
+                      )}
+                    </ul>
+                  </div>
+                `
+              : ''}
+
+            <gdm-media-controls
+              .isRecording=${this.isRecording}
+              .hasAnalyses=${this.analyses.length > 0}
+              .hasTimelineEvents=${this.timelineEvents.length > 0}
+              @start-recording=${this.startRecording}
+              @stop-recording=${this.stopRecording}
+              @reset=${this.reset}
+              @show-analysis=${() =>
+                (this.showAnalysisPanel = !this.showAnalysisPanel)}
+              @show-timeline=${() =>
+                (this.showTimelineModal = true)}></gdm-media-controls>
+          </div>
+
+          <gdm-live-audio-visuals-3d
+            .inputNode=${this.inputNode}
+            .outputNode=${this.outputNode}></gdm-live-audio-visuals-3d>
         </div>
-
-        <gdm-live-audio-visuals-3d
-          .inputNode=${this.inputNode}
-          .outputNode=${this.outputNode}></gdm-live-audio-visuals-3d>
       </div>
     `;
   }
