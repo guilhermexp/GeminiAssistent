@@ -65,44 +65,10 @@ export class GdmAnalysisPanel extends LitElement {
     .panel-body {
       flex-grow: 1;
       display: flex;
-      gap: 20px;
+      flex-direction: column;
       overflow: hidden;
       padding: 24px;
       padding-top: 16px;
-    }
-
-    .analysis-sidebar {
-      flex: 0 0 250px;
-      background: rgba(0, 0, 0, 0.2);
-      padding: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      overflow-y: auto;
-      border-radius: 8px;
-    }
-    .analysis-sidebar button {
-      display: block;
-      width: 100%;
-      background: transparent;
-      border: none;
-      color: #ccc;
-      padding: 12px 16px;
-      text-align: left;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      transition: background-color 0.2s, color 0.2s;
-    }
-    .analysis-sidebar button:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: #fff;
-    }
-    .analysis-sidebar button.active {
-      background: rgba(80, 120, 255, 0.3);
-      color: #fff;
-      font-weight: 600;
     }
 
     .analysis-main {
@@ -114,11 +80,39 @@ export class GdmAnalysisPanel extends LitElement {
       min-width: 0; /* Fix for flexbox overflow */
     }
 
+    .analysis-selector {
+      margin-bottom: 16px;
+      flex-shrink: 0;
+    }
+
+    .analysis-selector select {
+      width: 100%;
+      padding: 12px;
+      background-color: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #eee;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' height='24' viewBox='0 -960 960 960' width='24' fill='%23999'%3E%3Cpath d='M480-345 240-585l56-56 184 184 184-184 56 56-240 240Z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 40px; /* Make space for arrow */
+    }
+
+    .analysis-selector select:focus {
+      outline: none;
+      border-color: #5078ff;
+    }
+
     .analysis-title {
       margin: 0 0 16px 0;
       font-size: 1.1em;
       font-weight: 600;
       color: #fff;
+      flex-shrink: 0;
     }
 
     .analysis-text-content {
@@ -204,52 +198,13 @@ export class GdmAnalysisPanel extends LitElement {
       background: #6a8dff;
     }
 
-    /* Responsive adjustments for smaller screens */
     @media (max-width: 800px) {
       .panel-header {
         padding: 16px;
         padding-bottom: 0;
       }
       .panel-body {
-        flex-direction: column;
         padding: 16px;
-        gap: 16px;
-      }
-
-      .analysis-sidebar {
-        flex: 0 0 auto; /* Allow it to size based on content */
-        width: 100%;
-        overflow-x: auto;
-        overflow-y: hidden;
-        display: flex;
-        flex-direction: row;
-        padding-bottom: 8px; /* For scrollbar space */
-      }
-
-      /* Simple scrollbar styling */
-      .analysis-sidebar::-webkit-scrollbar {
-        height: 4px;
-      }
-      .analysis-sidebar::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      .analysis-sidebar::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 2px;
-      }
-
-      .analysis-sidebar button {
-        width: auto;
-        flex-shrink: 0; /* Prevent buttons from shrinking */
-        margin-right: 8px; /* Add spacing between horizontal buttons */
-      }
-
-      .analysis-sidebar button:last-child {
-        margin-right: 0;
-      }
-
-      .analysis-main {
-        min-height: 0; /* Fix for flexbox overflow in column layout */
       }
     }
   `;
@@ -273,6 +228,11 @@ export class GdmAnalysisPanel extends LitElement {
     this.dispatchEvent(
       new CustomEvent('close', {bubbles: true, composed: true}),
     );
+  }
+
+  private _handleAnalysisSelectionChange(e: Event) {
+    const selectElement = e.target as HTMLSelectElement;
+    this.selectedAnalysisId = selectElement.value;
   }
 
   private getCurrentAnalysis(): Analysis | undefined {
@@ -366,27 +326,33 @@ export class GdmAnalysisPanel extends LitElement {
         </button>
       </div>
       <div class="panel-body">
-        <div class="analysis-sidebar">
-          ${this.analyses.map(
-            (analysis) => html`
-              <button
-                class=${this.selectedAnalysisId === analysis.id ? 'active' : ''}
-                @click=${() => (this.selectedAnalysisId = analysis.id)}
-                title=${analysis.title}>
-                ${analysis.title}
-              </button>
-            `,
-          )}
-        </div>
-
         <div class="analysis-main">
-          <h4 class="analysis-title">
-            ${currentAnalysis?.title || 'Selecione uma análise'}
-          </h4>
+          ${
+            this.analyses.length > 1
+              ? html`
+                  <div class="analysis-selector">
+                    <select
+                      @change=${this._handleAnalysisSelectionChange}
+                      .value=${this.selectedAnalysisId || ''}
+                      aria-label="Selecionar análise para visualizar">
+                      ${this.analyses.map(
+                        (analysis) => html`
+                          <option value=${analysis.id}>${analysis.title}</option>
+                        `,
+                      )}
+                    </select>
+                  </div>
+                `
+              : html`
+                  <h4 class="analysis-title">
+                    ${currentAnalysis?.title || 'Selecione uma análise'}
+                  </h4>
+                `
+          }
           <div id="analysis-content-for-pdf" class="analysis-text-content">
             ${currentAnalysis
               ? unsafeHTML(marked.parse(currentAnalysis.summary) as string)
-              : html`<p>Selecione uma análise na lista ao lado.</p>`}
+              : html`<p>Nenhuma análise selecionada.</p>`}
           </div>
           <div class="modal-actions">
             <button

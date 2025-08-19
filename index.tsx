@@ -17,6 +17,7 @@ import type {
   SearchResult,
   TimelineEvent,
   AnalysisCallbacks,
+  AnalysisResult,
 } from './types';
 
 // Import the new sub-components
@@ -428,8 +429,8 @@ Seu papel é:
 2. Manter um tom técnico e prestativo, como um engenheiro de software sênior, falando em português do Brasil.
 3. Se a informação não estiver no seu conhecimento, indique que a resposta não pode ser encontrada no resumo do repositório. Você não pode pesquisar na web.
 4. Não invente informações; atenha-se estritamente ao seu conhecimento do repositório.`;
-    } else if (type === 'youtube') {
-      return `Você é um assistente de voz inteligente especializado no vídeo do YouTube: "${title}".
+    } else if (type === 'youtube' || type === 'video') {
+      return `Você é um assistente de voz inteligente especializado no vídeo: "${title}".
 Você já assistiu ao vídeo e analisou tanto o áudio quanto os elementos visuais. Seu conhecimento base é o seguinte resumo:
 --- INÍCIO DO CONHECIMENTO ---
 ${summary}
@@ -474,12 +475,8 @@ Seu papel é:
     return instruction;
   }
 
-  private async generateAnalysisAndSetupSession(
-    summary: string,
-    contentInfo: {title: string; source: string},
-    persona: Analysis['persona'],
-    contentType: Analysis['type'],
-  ) {
+  private async generateAnalysisAndSetupSession(result: AnalysisResult) {
+    const {summary, title, source, persona, type} = result;
     this.logEvent('Análise concluída com sucesso.', 'success');
 
     this.setProcessingState(
@@ -490,16 +487,15 @@ Seu papel é:
 
     const newAnalysis: Analysis = {
       id: Date.now().toString(),
-      title: contentInfo.title,
-      source: contentInfo.source,
+      title: title,
+      source: source,
       summary: summary,
-      type: contentType,
+      type: type,
       persona: persona,
     };
 
     this.analyses = [...this.analyses, newAnalysis];
-
-    this.logEvent(`Contexto adicionado: "${contentInfo.title}"`, 'success');
+    this.logEvent(`Contexto adicionado: "${title}"`, 'success');
 
     const compositeInstruction = this.generateCompositeSystemInstruction();
     await this.initSession(compositeInstruction);
@@ -537,12 +533,7 @@ Seu papel é:
         callbacks,
       );
 
-      await this.generateAnalysisAndSetupSession(
-        result.summary,
-        {title: result.title, source: result.source},
-        result.persona,
-        result.type,
-      );
+      await this.generateAnalysisAndSetupSession(result);
     } catch (err) {
       console.error(err);
       this.updateError(`Erro na análise: ${(err as Error).message}`);
@@ -637,7 +628,6 @@ Seu papel é:
               @show-timeline=${() =>
                 (this.showTimelineModal = true)}></gdm-media-controls>
           </div>
-
           <gdm-live-audio-visuals-3d
             .inputNode=${this.inputNode}
             .outputNode=${this.outputNode}></gdm-live-audio-visuals-3d>

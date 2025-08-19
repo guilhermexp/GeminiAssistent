@@ -7,6 +7,7 @@ import {GoogleGenAI} from '@google/genai';
 import {
   getYouTubeVideoId,
   getYouTubeVideoTitle,
+  getYoutubeEmbedUrl,
   isValidUrl,
 } from './youtube-utils';
 import {scrapeUrl} from './firecrawl-utils';
@@ -30,7 +31,8 @@ export class AnalysisService {
     callbacks: AnalysisCallbacks,
   ): Promise<AnalysisResult> {
     if (file) {
-      return this.analyzeFile(file, callbacks);
+      const result = await this.analyzeFile(file, callbacks);
+      return result;
     } else {
       const input = urlOrTopic.trim();
       if (isValidUrl(input)) {
@@ -98,7 +100,7 @@ export class AnalysisService {
             const textContent = await file.text();
             result = { type: 'text', content: textContent, mimeType };
           } else {
-              // For images and PDFs, which don't require heavy CPU parsing, we'll just get the base64 data.
+              // For images, videos, and PDFs, which don't require heavy CPU parsing, we'll just get the base64 data.
                const base64 = await new Promise((resolve, reject) => {
                   const reader = new FileReader();
                   reader.readAsDataURL(file);
@@ -171,6 +173,17 @@ export class AnalysisService {
       setProcessingState(true, `Analisando imagem...`, 50);
       const analysisPrompt =
         'Analise esta imagem em detalhes. Descreva todos os elementos visuais, o contexto e quaisquer textos visíveis. Responda em português.';
+      contents = {
+        parts: [
+          {text: analysisPrompt},
+          {inlineData: {mimeType, data: content}},
+        ],
+      };
+    } else if (mimeType.startsWith('video/')) {
+      type = 'video';
+      setProcessingState(true, `Analisando vídeo...`, 50);
+      const analysisPrompt =
+        'Você é um assistente multimodal. Analise este vídeo em detalhes. Descreva todos os elementos visuais e de áudio, o contexto e quaisquer textos visíveis. Crie um resumo detalhado. Responda em português.';
       contents = {
         parts: [
           {text: analysisPrompt},

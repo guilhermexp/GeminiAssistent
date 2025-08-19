@@ -397,7 +397,7 @@ export class GdmAnalysisForm extends LitElement {
           id="file-input"
           style="display: none;"
           @change=${this.handleFileSelect}
-          accept="image/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.md,.xlm" />
+          accept="image/*,video/*,application/pdf,.csv,.xls,.xlsx,.doc,.docx,.md,.xlm" />
 
         ${this.analyses.length > 0
           ? html`

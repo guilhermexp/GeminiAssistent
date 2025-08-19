@@ -16,7 +16,7 @@ export interface Analysis {
   title: string;
   source: string;
   summary: string;
-  type: 'youtube' | 'github' | 'spreadsheet' | 'file' | 'search' | 'url';
+  type: 'youtube' | 'github' | 'spreadsheet' | 'file' | 'search' | 'url' | 'video';
   persona: 'assistant' | 'analyst';
 }
 
