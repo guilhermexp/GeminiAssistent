@@ -97,6 +97,9 @@ export class GdmLiveAudio extends LitElement {
   }
 
   private async initSession(newSystemInstruction?: string) {
+    if (this.isRecording) {
+      this.stopRecording();
+    }
     if (this.session) {
       this.session.close();
     }
@@ -149,6 +152,18 @@ export class GdmLiveAudio extends LitElement {
           onclose: (e: CloseEvent) => {
             this.updateStatus('Conexão fechada: ' + e.reason);
             this.logEvent(`Conexão fechada: ${e.reason}`, 'disconnect');
+            // If we were recording when the connection dropped, stop the recording.
+            if (this.isRecording) {
+              this.audioService.stop();
+              this.isRecording = false;
+              this.updateStatus(
+                'Gravação interrompida. A conexão foi fechada.',
+              );
+              this.logEvent(
+                'Gravação interrompida devido à desconexão.',
+                'record',
+              );
+            }
           },
         },
         config: {
