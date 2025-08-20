@@ -9,6 +9,26 @@ interface AudioServiceOptions {
   onInputAudio: (blob: Blob) => void;
 }
 
+const pcmProcessorWorklet = `
+class PcmProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    // We expect one input, with one channel, of Float32Array data.
+    const inputChannelData = inputs[0]?.[0];
+
+    // If there's no data, don't do anything.
+    if (inputChannelData) {
+      // Post the raw PCM data back to the main thread.
+      // The data is a Float32Array, which will be cloned.
+      this.port.postMessage(inputChannelData);
+    }
+    
+    return true; // Keep processor alive
+  }
+}
+
+registerProcessor('pcm-processor', PcmProcessor);
+`;
+
 /**
  * Encapsulates all Web Audio API logic for microphone input and audio output.
  */
@@ -24,9 +44,10 @@ export class AudioService {
   private outputAudioContext: AudioContext;
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private scriptProcessorNode: ScriptProcessorNode | null = null;
+  private audioWorkletNode: AudioWorkletNode | null = null;
   private outputSources = new Set<AudioBufferSourceNode>();
   private nextStartTime = 0;
+  private workletModuleAdded = false;
 
   constructor(options: AudioServiceOptions) {
     this.onInputAudio = options.onInputAudio;
@@ -51,33 +72,58 @@ export class AudioService {
       return; // Already started
     }
 
-    await this.inputAudioContext.resume();
+    if (this.inputAudioContext.state === 'suspended') {
+      await this.inputAudioContext.resume();
+    }
+
+    if (!this.inputAudioContext.audioWorklet) {
+      throw new Error('AudioWorklet is not supported by this browser.');
+    }
+
+    if (!this.workletModuleAdded) {
+      const blob = new Blob([pcmProcessorWorklet], {
+        type: 'application/javascript',
+      });
+      const workletURL = URL.createObjectURL(blob);
+
+      try {
+        await this.inputAudioContext.audioWorklet.addModule(workletURL);
+        this.workletModuleAdded = true;
+      } catch (e) {
+        console.error('Error adding audio worklet module', e);
+        throw e;
+      } finally {
+        URL.revokeObjectURL(workletURL);
+      }
+    }
 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+      },
       video: false,
     });
 
     this.sourceNode = this.inputAudioContext.createMediaStreamSource(
       this.mediaStream,
     );
-    this.sourceNode.connect(this.inputNode);
 
-    const bufferSize = 256;
-    this.scriptProcessorNode = this.inputAudioContext.createScriptProcessor(
-      bufferSize,
-      1,
-      1,
+    this.audioWorkletNode = new AudioWorkletNode(
+      this.inputAudioContext,
+      'pcm-processor',
     );
 
-    this.scriptProcessorNode.onaudioprocess = (audioProcessingEvent) => {
-      const inputBuffer = audioProcessingEvent.inputBuffer;
-      const pcmData = inputBuffer.getChannelData(0);
+    this.audioWorkletNode.port.onmessage = (event) => {
+      const pcmData = event.data; // This is a Float32Array
       this.onInputAudio(createBlob(pcmData));
     };
 
-    this.sourceNode.connect(this.scriptProcessorNode);
-    this.scriptProcessorNode.connect(this.inputAudioContext.destination);
+    // The visualizer taps into `inputNode`. The worklet also gets data from it.
+    this.sourceNode.connect(this.inputNode);
+    this.inputNode.connect(this.audioWorkletNode);
+    // The worklet node does not need to be connected to the destination.
+    // This prevents microphone feedback.
   }
 
   /**
@@ -86,13 +132,17 @@ export class AudioService {
   public stop(): void {
     if (!this.mediaStream) return;
 
-    if (this.scriptProcessorNode && this.sourceNode) {
-      this.scriptProcessorNode.disconnect();
-      this.sourceNode.disconnect();
+    if (this.audioWorkletNode) {
+      this.audioWorkletNode.port.onmessage = null;
+      // Disconnect the input node from the worklet, leaving other connections intact
+      this.inputNode.disconnect(this.audioWorkletNode);
+      this.audioWorkletNode = null;
     }
 
-    this.scriptProcessorNode = null;
-    this.sourceNode = null;
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
 
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());

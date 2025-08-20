@@ -12,12 +12,12 @@ import {customElement, property} from 'lit/decorators.js';
 import {Analyser} from './analyser';
 
 import * as THREE from 'three';
-import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
-import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
-import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
-import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
-import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
-import {FXAAShader} from 'three/addons/shaders/FXAAShader.js';
+import {EXRLoader} from 'three/examples/jsm/loaders/EXRLoader.js';
+import {EffectComposer} from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/examples/jsm/postprocessing/RenderPass.js';
+import {ShaderPass} from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import {UnrealBloomPass} from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import {FXAAShader} from 'three/examples/jsm/shaders/FXAAShader.js';
 import {vs as sphereVS} from './sphere-shader';
 
 /**

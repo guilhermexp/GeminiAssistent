@@ -62,7 +62,7 @@ export class AnalysisService {
     const workerCode = `
       importScripts(
         "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
-        "https://cdn.jsdelivr.net/npm/mammoth@1.7.2/mammoth.browser.min.js"
+        "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"
       );
 
       self.onmessage = async (event) => {
