@@ -69,6 +69,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       position: absolute;
       inset: 0;
       image-rendering: pixelated;
+      mix-blend-mode: screen;
     }
   `;
 
