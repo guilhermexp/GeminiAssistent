@@ -2,6 +2,13 @@
 
 This is a sophisticated web application that functions as a real-time, voice-driven AI assistant powered by the Google Gemini API. It features a dynamic 3D audio visualization and has the unique capability to analyze content from various sources—web pages, YouTube videos, GitHub repositories, and local files (images, PDFs, spreadsheets, Word documents)—or perform a deep web search on any topic. After analysis, the assistant becomes a conversational expert on the provided material, capable of handling multiple contexts at once.
 
+## Required Setup
+
+To use all features of this application, you must configure the following API keys as environment variables before building/running the project:
+
+-   `API_KEY`: Your Google API key for the Gemini models.
+-   `FIRECRAWL_API_KEY`: Your API key for the [Firecrawl service](https://firecrawl.dev/). This is required for analyzing content from web pages and Google Docs.
+
 ## Key Features
 
 -   **Real-Time Voice Conversation**: Engage in natural, spoken conversations with a Gemini-powered AI assistant.

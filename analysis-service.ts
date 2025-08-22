@@ -149,6 +149,43 @@ export class AnalysisService {
     });
   }
 
+  private createHtmlPreview(text: string, title: string): string {
+    // Sanitize text for HTML display
+    const sanitizedText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Preview: ${title}</title>
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            color: #e0e0e0; 
+            background-color: #121212;
+            margin: 0;
+            padding: 1.5em;
+          }
+          pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 14px;
+            line-height: 1.6;
+          }
+        </style>
+      </head>
+      <body><pre>${sanitizedText}</pre></body>
+      </html>
+    `;
+    // Use btoa for base64 encoding. Need to handle Unicode characters correctly.
+    const base64 = btoa(unescape(encodeURIComponent(htmlContent)));
+    return `data:text/html;base64,${base64}`;
+  }
+
   private async analyzeFile(
     file: File,
     callbacks: AnalysisCallbacks,
@@ -167,12 +204,14 @@ export class AnalysisService {
     let contents: any;
     let persona: Analysis['persona'] = 'assistant';
     let type: Analysis['type'] = 'file';
+    let previewData: string | undefined = undefined;
     const generateContentConfig: any = {model: 'gemini-2.5-flash'};
 
     if (mimeType.startsWith('image/')) {
       setProcessingState(true, `Analisando imagem...`, 50);
+      previewData = `data:${mimeType};base64,${content}`;
       const analysisPrompt =
-        'Analise esta imagem em detalhes. Descreva todos os elementos visuais, o contexto e quaisquer textos visíveis. Responda em português.';
+        'Analise esta imagem em detalhes. Descreva todos os elementos visuais, o contexto e quaisquer textos visíveis. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.';
       contents = {
         parts: [
           {text: analysisPrompt},
@@ -182,8 +221,9 @@ export class AnalysisService {
     } else if (mimeType.startsWith('video/')) {
       type = 'video';
       setProcessingState(true, `Analisando vídeo...`, 50);
+      previewData = `data:${mimeType};base64,${content}`;
       const analysisPrompt =
-        'Você é um assistente multimodal. Analise este vídeo em detalhes. Descreva todos os elementos visuais e de áudio, o contexto e quaisquer textos visíveis. Crie um resumo detalhado. Responda em português.';
+        'Você é um assistente multimodal. Analise este vídeo em detalhes. Descreva todos os elementos visuais e de áudio, o contexto e quaisquer textos visíveis. Crie um resumo detalhado. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.';
       contents = {
         parts: [
           {text: analysisPrompt},
@@ -192,8 +232,9 @@ export class AnalysisService {
       };
     } else if (mimeType === 'application/pdf') {
       setProcessingState(true, `Analisando PDF...`, 50);
+      previewData = `data:${mimeType};base64,${content}`;
       const analysisPrompt =
-        'Analise este documento PDF. Extraia um resumo detalhado, os pontos principais e quaisquer conclusões importantes. Responda em português.';
+        'Analise este documento PDF. Extraia um resumo detalhado, os pontos principais e quaisquer conclusões importantes. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.';
       contents = {
         parts: [
           {text: analysisPrompt},
@@ -204,7 +245,19 @@ export class AnalysisService {
       persona = 'analyst';
       type = 'spreadsheet';
       setProcessingState(true, `Analisando planilha...`, 50);
-      const analysisPrompt = `Você é um analista de dados especialista. O seguinte texto contém dados extraídos de uma planilha, possivelmente com múltiplas abas, em formato CSV. Sua tarefa é analisar esses dados profundamente. Responda em português.\n\n**Análise Requerida:**\n1.  **Resumo Geral:** Forneça uma visão geral dos dados.\n2.  **Estrutura dos Dados:** Identifique as colunas e o tipo de dados que elas contêm.\n3.  **Principais Métricas:** Calcule ou identifique métricas importantes (médias, totais, contagens, etc.).\n4.  **Insights e Tendências:** Aponte quaisquer padrões, correlações ou tendências interessantes que você observar.\n\nEste resumo detalhado será seu único conhecimento sobre a planilha. Prepare-se para responder a perguntas específicas sobre ela.\n\n--- CONTEÚDO DA PLANILHA ---\n${content}`;
+      previewData = this.createHtmlPreview(content, contentTitle);
+      const analysisPrompt = `Você é um analista de dados especialista. O seguinte texto contém dados extraídos de uma planilha, possivelmente com múltiplas abas, em formato CSV. Sua tarefa é analisar esses dados profundamente. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+**Análise Requerida:**
+1.  **Resumo Geral:** Forneça uma visão geral dos dados.
+2.  **Estrutura dos Dados:** Identifique as colunas e o tipo de dados que elas contêm.
+3.  **Principais Métricas:** Calcule ou identifique métricas importantes (médias, totais, contagens, etc.).
+4.  **Insights e Tendências:** Aponte quaisquer padrões, correlações ou tendências interessantes que você observar.
+
+Este resumo detalhado será seu único conhecimento sobre a planilha. Prepare-se para responder a perguntas específicas sobre ela.
+
+--- CONTEÚDO DA PLANILHA ---
+${content}`;
       contents = {parts: [{text: analysisPrompt}]};
     } else if (processedType === 'text') {
       let analysisPrompt: string;
@@ -215,13 +268,23 @@ export class AnalysisService {
       const isMarkdown =
         fileName.endsWith('.md') || mimeType === 'text/markdown';
       setProcessingState(true, `Analisando documento...`, 50);
+      previewData = this.createHtmlPreview(content, contentTitle);
 
       if (isXml) {
-        analysisPrompt = `Analise este documento XML. Descreva a sua estrutura de dados, os elementos principais e o propósito geral do conteúdo. Responda em português.\n\n--- CONTEÚDO DO XML ---\n${content}`;
+        analysisPrompt = `Analise este documento XML. Descreva a sua estrutura de dados, os elementos principais e o propósito geral do conteúdo. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+--- CONTEÚDO DO XML ---
+${content}`;
       } else if (isMarkdown) {
-        analysisPrompt = `Analise este documento Markdown. Extraia um resumo detalhado, os pontos principais, a estrutura dos títulos e quaisquer conclusões importantes. Responda em português.\n\n--- CONTEÚDO DO MARKDOWN ---\n${content}`;
+        analysisPrompt = `Analise este documento Markdown. Extraia um resumo detalhado, os pontos principais, a estrutura dos títulos e quaisquer conclusões importantes. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+--- CONTEÚDO DO MARKDOWN ---
+${content}`;
       } else {
-        analysisPrompt = `Analise este documento de texto. Extraia um resumo detalhado, os pontos principais e quaisquer conclusões importantes. Responda em português.\n\n--- CONTEÚDO DO DOCUMENTO ---\n${content}`;
+        analysisPrompt = `Analise este documento de texto. Extraia um resumo detalhado, os pontos principais e quaisquer conclusões importantes. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+--- CONTEÚDO DO DOCUMENTO ---
+${content}`;
       }
       contents = {parts: [{text: analysisPrompt}]};
     } else {
@@ -235,7 +298,14 @@ export class AnalysisService {
       contents,
       generateContentConfig,
     );
-    return {summary, title: contentTitle, source: contentSource, persona, type};
+    return {
+      summary,
+      title: contentTitle,
+      source: contentSource,
+      persona,
+      type,
+      previewData,
+    };
   }
 
   private async analyzeYouTubeUrl(
@@ -245,6 +315,7 @@ export class AnalysisService {
     const {setProcessingState, logEvent} = callbacks;
     setProcessingState(true, 'Buscando informações do vídeo...', 15);
     const title = await getYouTubeVideoTitle(url);
+    const embedUrl = getYoutubeEmbedUrl(url);
     setProcessingState(true, 'Analisando vídeo com IA...', 50);
     logEvent(`Analisando YouTube: ${title}`, 'process');
 
@@ -253,7 +324,7 @@ export class AnalysisService {
 2. **Análise Visual**: Descrição de cenas importantes, pessoas (e suas ações ou aparências, como cor de roupa), objetos, textos na tela e o ambiente geral.
 3. **Eventos Chave**: Uma cronologia de eventos importantes, combinando informações visuais e de áudio, com timestamps se possível.
 
-Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre o vídeo. Responda em português.`;
+Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre o vídeo. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.`;
     const contents = {
       parts: [
         {text: analysisPrompt},
@@ -271,6 +342,7 @@ Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre
       source: url,
       persona: 'assistant',
       type: 'youtube',
+      previewData: embedUrl ?? undefined,
     };
   }
 
@@ -369,7 +441,7 @@ Sua tarefa é criar um resumo detalhado para que você possa responder a pergunt
 3. **Como Começar**: Como um novo desenvolvedor poderia configurar e rodar o projeto?
 4. **Estrutura do Projeto**: Descreva a organização das pastas e arquivos importantes.
 
-Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre o repositório. Responda em português.
+Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre o repositório. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
 
 --- CONTEÚDO DO README.md ---
 ${readmeContent}
@@ -422,7 +494,17 @@ ${fileTreeText}
     }
     const csvData = await response.text();
     setProcessingState(true, `Analisando com IA...`, 50);
-    const analysisPrompt = `Você é um analista de dados especialista. O seguinte texto contém dados extraídos de uma planilha do Google Sheets, em formato CSV. Sua tarefa é analisar esses dados profundamente. Responda em português.\n\n**Análise Requerida:**\n1.  **Resumo Geral:** Forneça uma visão geral dos dados.\n2.  **Principais Métricas:** Identifique e resuma as métricas chave.\n3.  **Insights e Tendências:** Aponte padrões ou tendências importantes.\n\nPrepare-se para responder a perguntas específicas sobre a planilha.\n\n--- CONTEÚDO DA PLANILHA ---\n${csvData}`;
+    const analysisPrompt = `Você é um analista de dados especialista. O seguinte texto contém dados extraídos de uma planilha do Google Sheets, em formato CSV. Sua tarefa é analisar esses dados profundamente. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+**Análise Requerida:**
+1.  **Resumo Geral:** Forneça uma visão geral dos dados.
+2.  **Principais Métricas:** Identifique e resuma as métricas chave.
+3.  **Insights e Tendências:** Aponte padrões ou tendências importantes.
+
+Prepare-se para responder a perguntas específicas sobre a planilha.
+
+--- CONTEÚDO DA PLANILHA ---
+${csvData}`;
     const contents = {parts: [{text: analysisPrompt}]};
     const generateContentConfig = {model: 'gemini-2.5-flash'};
     const summary = await this.analyzeContentAndGenerateSummary(
@@ -457,7 +539,10 @@ ${fileTreeText}
     const contentTitle = scrapeResult.data.metadata.title || url;
     const scrapedMarkdown = scrapeResult.data.markdown;
     setProcessingState(true, 'Analisando conteúdo com IA...', 50);
-    const analysisPrompt = `O seguinte é o conteúdo em markdown de uma página da web. Analise-o e extraia um resumo detalhado, os pontos principais e as conclusões. Prepare-se para responder a perguntas sobre ele. Responda em português.\n\n--- CONTEÚDO DA PÁGINA ---\n${scrapedMarkdown}`;
+    const analysisPrompt = `O seguinte é o conteúdo em markdown de uma página da web. Analise-o e extraia um resumo detalhado, os pontos principais e as conclusões. Prepare-se para responder a perguntas sobre ele. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
+
+--- CONTEÚDO DA PÁGINA ---
+${scrapedMarkdown}`;
     const contents = {parts: [{text: analysisPrompt}]};
     const generateContentConfig = {model: 'gemini-2.5-flash'};
     const summary = await this.analyzeContentAndGenerateSummary(
@@ -498,7 +583,7 @@ Após a pesquisa, sintetize os resultados em uma análise estruturada e detalhad
 - **Perspectivas Futuras**: O que esperar para o futuro, incluindo tendências e previsões.
 - **Conclusão**: Um resumo dos pontos mais importantes.
 
-Responda em português.`;
+Lembre-se, sua resposta deve ser inteiramente em português do Brasil.`;
     const response = await this.client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: analysisPrompt,

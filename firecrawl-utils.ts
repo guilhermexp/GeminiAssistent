@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import {ApiConfig} from './config';
 import {fetchWithRetry} from './utils';
 
 export interface ScrapeResult {
@@ -27,7 +28,7 @@ export async function scrapeUrl(url: string): Promise<ScrapeResult> {
   //
   // For this example, the key is included for functionality, but it is
   // strongly recommended to replace this with a secure solution.
-  const firecrawlApiKey = 'fc-b9df4e7aa9834cdfb37aa7a3072a72af';
+  const firecrawlApiKey = ApiConfig.FIRECRAWL;
 
   if (!firecrawlApiKey) {
     console.error('Firecrawl API key is not set.');

@@ -104,7 +104,7 @@ export class GdmAnalysisForm extends LitElement {
     }
 
     .input-form button[type='submit']:disabled {
-      background: rgba(80, 120, 255, 0.4);
+      background: #282846; /* More discreet disabled background */
       opacity: 1; /* Override general disabled opacity */
       cursor: not-allowed;
     }
@@ -118,9 +118,13 @@ export class GdmAnalysisForm extends LitElement {
       top: 0;
       left: 0;
       height: 100%;
-      background: rgba(80, 120, 255, 0.8);
+      background: linear-gradient(
+        90deg,
+        rgba(80, 120, 255, 0.7) 0%,
+        rgba(100, 140, 255, 0.9) 100%
+      );
       border-radius: 20px;
-      transition: width 0.3s ease-in-out;
+      transition: none; /* JS will handle animation */
       z-index: 1;
     }
 
@@ -244,38 +248,78 @@ export class GdmAnalysisForm extends LitElement {
 
   willUpdate(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('processingState')) {
-      this.animateProgress(this.processingState.progress);
+      this.handleProgressChange(
+        this.processingState.progress,
+        this.processingState.active,
+      );
     }
   }
 
-  private animateProgress(targetProgress: number) {
+  private handleProgressChange(targetProgress: number, isActive: boolean) {
+    // Always cancel any previous animation when the state changes.
     if (this.progressAnimationId) {
       cancelAnimationFrame(this.progressAnimationId);
+      this.progressAnimationId = null;
     }
 
-    const startProgress = this.animatedProgress;
-    const duration = 300; // ms
-    let startTime: number | null = null;
+    // This is the special "intelligent feedback" state.
+    // When the progress hits 50%, we start a long, slow, simulated animation
+    // to show that work is being done in the background.
+    if (isActive && targetProgress === 50) {
+      // First, do a quick animation to get to the 50% mark.
+      this.animateTo(50, 300).then(() => {
+        // After reaching 50%, start the slow simulation, but only if the
+        // process is still active at 50% (it hasn't been cancelled or completed).
+        if (this.processingState.active && this.processingState.progress === 50) {
+          // This will be a long, slow animation to 94% with an easing
+          // function to make it feel more natural as it decelerates.
+          const fifteenSeconds = 15000;
+          const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+          this.animateTo(94, fifteenSeconds, easeOutCubic);
+        }
+      });
+      return; // The nested animations will handle it from here.
+    }
 
-    const step = (timestamp: number) => {
-      if (!startTime) startTime = timestamp;
-      const elapsed = timestamp - startTime;
-      const progress = Math.min(
-        (elapsed / duration) * (targetProgress - startProgress) +
-          startProgress,
-        targetProgress,
-      );
+    // For all other progress steps, just do a quick, standard animation.
+    this.animateTo(targetProgress, 300);
+  }
 
-      this.animatedProgress = Math.round(progress);
-
-      if (elapsed < duration) {
-        this.progressAnimationId = requestAnimationFrame(step);
-      } else {
-        this.animatedProgress = targetProgress;
+  private animateTo(
+    target: number,
+    duration: number,
+    easing: (t: number) => number = (t) => t,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      // It's possible a new animation was requested while this one was waiting
+      // in the promise, so we cancel again just in case.
+      if (this.progressAnimationId) {
+        cancelAnimationFrame(this.progressAnimationId);
       }
-    };
 
-    this.progressAnimationId = requestAnimationFrame(step);
+      const start = this.animatedProgress;
+      const change = target - start;
+      let startTime: number | null = null;
+
+      const step = (timestamp: number) => {
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        const progressRatio = Math.min(elapsed / duration, 1);
+        const easedProgress = easing(progressRatio);
+
+        this.animatedProgress = Math.round(start + change * easedProgress);
+
+        if (elapsed < duration) {
+          this.progressAnimationId = requestAnimationFrame(step);
+        } else {
+          this.animatedProgress = target;
+          this.progressAnimationId = null;
+          resolve();
+        }
+      };
+
+      this.progressAnimationId = requestAnimationFrame(step);
+    });
   }
 
   private handleUrlInputChange(e: Event) {

@@ -8,6 +8,7 @@ import {unsafeHTML} from 'lit/directives/unsafe-html.js';
 import {marked} from 'marked';
 import jsPDF from 'jspdf';
 import type {Analysis} from './types';
+import './video-player.js';
 
 @customElement('gdm-analysis-panel')
 export class GdmAnalysisPanel extends LitElement {
@@ -15,6 +16,8 @@ export class GdmAnalysisPanel extends LitElement {
   @property({type: Array}) analyses: Analysis[] = [];
 
   @state() private selectedAnalysisId: string | null = null;
+  @state() private pdfBlobUrl: string | null = null;
+  private lastProcessedPreviewData: string | undefined = undefined;
 
   static styles = css`
     :host {
@@ -115,6 +118,34 @@ export class GdmAnalysisPanel extends LitElement {
       flex-shrink: 0;
     }
 
+    .preview-container {
+      margin-bottom: 16px;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .preview-image {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    gdm-video-player {
+      width: 100%;
+      height: 100%;
+    }
+    .preview-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #fff;
+    }
+
     .analysis-text-content {
       flex-grow: 1;
       overflow-y: auto;
@@ -209,6 +240,29 @@ export class GdmAnalysisPanel extends LitElement {
     }
   `;
 
+  private dataUriToBlob(dataURI: string): Blob {
+    const byteString = atob(dataURI.split(',')[1]);
+    const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], {type: mimeString});
+  }
+
+  private revokePdfBlobUrl() {
+    if (this.pdfBlobUrl) {
+      URL.revokeObjectURL(this.pdfBlobUrl);
+      this.pdfBlobUrl = null;
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.revokePdfBlobUrl();
+  }
+
   updated(changedProperties: Map<string | number | symbol, unknown>) {
     if (
       (changedProperties.has('show') &&
@@ -221,6 +275,20 @@ export class GdmAnalysisPanel extends LitElement {
         !this.analyses.find((a) => a.id === this.selectedAnalysisId))
     ) {
       this.selectedAnalysisId = this.analyses[0]?.id || null;
+    }
+
+    const currentAnalysis = this.getCurrentAnalysis();
+    const previewData = currentAnalysis?.previewData;
+
+    // If the preview data has changed, update the blob URL
+    if (previewData !== this.lastProcessedPreviewData) {
+      this.lastProcessedPreviewData = previewData;
+      this.revokePdfBlobUrl(); // Clean up old URL
+
+      if (previewData?.startsWith('data:application/pdf')) {
+        const blob = this.dataUriToBlob(previewData);
+        this.pdfBlobUrl = URL.createObjectURL(blob);
+      }
     }
   }
 
@@ -305,6 +373,25 @@ export class GdmAnalysisPanel extends LitElement {
 
   render() {
     const currentAnalysis = this.getCurrentAnalysis();
+    const analysisType = currentAnalysis?.type;
+    const previewData = currentAnalysis?.previewData;
+    const isImagePreview = previewData?.startsWith('data:image/');
+    const isPdfPreview = previewData?.startsWith('data:application/pdf');
+    const isHtmlPreview = previewData?.startsWith('data:text/html');
+
+    const iframeProps: {src?: string; srcdoc?: string} = {};
+    if (isPdfPreview) {
+      iframeProps.src = this.pdfBlobUrl ?? '';
+    } else if (isHtmlPreview && previewData) {
+      const base64 = previewData.split(',')[1];
+      try {
+        // This is the reverse of btoa(unescape(encodeURIComponent(str)))
+        iframeProps.srcdoc = decodeURIComponent(escape(atob(base64)));
+      } catch (e) {
+        console.error('Failed to decode base64 HTML for srcdoc', e);
+        iframeProps.srcdoc = '<p>Error displaying preview.</p>';
+      }
+    }
 
     return html`
       <div class="panel-header">
@@ -349,6 +436,32 @@ export class GdmAnalysisPanel extends LitElement {
                   </h4>
                 `
           }
+          ${previewData
+            ? html`
+                <div class="preview-container">
+                  ${analysisType === 'youtube' || analysisType === 'video'
+                    ? html`
+                        <gdm-video-player .src=${previewData}></gdm-video-player>
+                      `
+                    : isImagePreview
+                    ? html`
+                        <img
+                          class="preview-image"
+                          src=${previewData}
+                          alt="Preview of ${currentAnalysis.title}" />
+                      `
+                    : isPdfPreview || isHtmlPreview
+                    ? html`<iframe
+                          class="preview-iframe"
+                          .src=${iframeProps.src}
+                          .srcdoc=${iframeProps.srcdoc}
+                          title="Preview of ${currentAnalysis.title}"
+                        ></iframe>`
+                    : ''}
+                </div>
+              `
+            : ''}
+
           <div id="analysis-content-for-pdf" class="analysis-text-content">
             ${currentAnalysis
               ? unsafeHTML(marked.parse(currentAnalysis.summary) as string)

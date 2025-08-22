@@ -57,6 +57,7 @@ export class ContentAnalysisManager {
       summary: result.summary,
       type: result.type,
       persona: result.persona,
+      previewData: result.previewData,
     };
 
     const newAnalyses = [...currentAnalyses, newAnalysis];

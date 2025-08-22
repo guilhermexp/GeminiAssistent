@@ -18,6 +18,7 @@ export interface Analysis {
   summary: string;
   type: 'youtube' | 'github' | 'spreadsheet' | 'file' | 'search' | 'url' | 'video';
   persona: 'assistant' | 'analyst';
+  previewData?: string;
 }
 
 export interface TimelineEvent {
@@ -45,6 +46,7 @@ export interface AnalysisResult {
   source: string;
   persona: Analysis['persona'];
   type: Analysis['type'];
+  previewData?: string;
 }
 
 export interface AnalysisCallbacks {

@@ -63,11 +63,17 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private canvas!: HTMLCanvasElement;
 
   static styles = css`
+    :host {
+      display: block;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
     canvas {
       width: 100% !important;
       height: 100% !important;
-      position: absolute;
-      inset: 0;
+      display: block;
       image-rendering: pixelated;
       mix-blend-mode: screen;
     }
@@ -82,7 +88,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     const camera = new THREE.PerspectiveCamera(
       75,
-      window.innerWidth / window.innerHeight,
+      this.clientWidth / this.clientHeight,
       0.1,
       1000,
     );
@@ -95,7 +101,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
       alpha: true,
     });
     renderer.setClearColor(0x000000, 0);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(this.clientWidth, this.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio / 1);
 
     const geometry = new THREE.IcosahedronGeometry(1, 10);
@@ -137,7 +143,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
     const renderPass = new RenderPass(scene, camera);
 
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      new THREE.Vector2(this.clientWidth, this.clientHeight),
       0.8,
       0.5,
       0.1,
@@ -152,22 +158,34 @@ export class GdmLiveAudioVisuals3D extends LitElement {
 
     this.composer = composer;
 
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      const dPR = renderer.getPixelRatio();
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      renderer.setSize(w, h);
-      composer.setSize(w, h);
-      fxaaPass.material.uniforms['resolution'].value.set(
-        1 / (w * dPR),
-        1 / (h * dPR),
-      );
-    }
+    // This handler will be called when the component's size changes.
+    const onResize = () => {
+      const width = this.clientWidth;
+      const height = this.clientHeight;
 
-    window.addEventListener('resize', onWindowResize);
-    onWindowResize();
+      // Avoid issues when the component is not yet in the DOM or has no size.
+      if (width === 0 || height === 0) return;
+
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
+
+      const dPR = renderer.getPixelRatio();
+      fxaaPass.material.uniforms['resolution'].value.set(
+        1 / (width * dPR),
+        1 / (height * dPR),
+      );
+    };
+
+    // Use ResizeObserver to react to container size changes.
+    // This is more robust than listening to window.resize.
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(this);
+
+    // Initial call to set the size correctly.
+    onResize();
 
     this.animation();
   }

@@ -56,6 +56,11 @@ export class GdmLiveAudio extends LitElement {
   private contentAnalysisManager: ContentAnalysisManager;
   private audioService: AudioService;
 
+  private readonly models = [
+    'gemini-2.5-flash-preview-native-audio-dialog',
+    'gemini-live-2.5-flash-preview',
+  ];
+
   static styles = css`
     :host {
       width: 100vw;
@@ -112,72 +117,88 @@ export class GdmLiveAudio extends LitElement {
       this.logEvent('Sessão reiniciada para o modo geral.', 'info');
     }
 
-    const model = 'gemini-2.5-flash-preview-native-audio-dialog';
     this.updateStatus('Conectando ao assistente...');
-    try {
-      this.session = await this.client.live.connect({
-        model: model,
-        callbacks: {
-          onopen: () => {
-            this.logEvent('Conexão com o assistente estabelecida.', 'connect');
-            if (this.analyses.length === 0) {
-              this.updateStatus('Conectado');
-            }
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            const audio =
-              message.serverContent?.modelTurn?.parts[0]?.inlineData;
+    let lastError: Error | null = null;
 
-            if (audio) {
-              this.audioService.playAudioChunk(audio.data);
-            }
+    for (const model of this.models) {
+      try {
+        this.logEvent(`Tentando conectar com o modelo: ${model}`, 'info');
+        this.session = await this.client.live.connect({
+          model: model,
+          callbacks: {
+            onopen: () => {
+              this.logEvent(`Conexão estabelecida com ${model}.`, 'connect');
+              if (this.analyses.length === 0) {
+                this.updateStatus('Conectado');
+              }
+            },
+            onmessage: async (message: LiveServerMessage) => {
+              const audio =
+                message.serverContent?.modelTurn?.parts[0]?.inlineData;
 
-            const grounding = (message.serverContent as any)?.candidates?.[0]
-              ?.groundingMetadata;
-            if (grounding?.groundingChunks?.length) {
-              this.searchResults = grounding.groundingChunks
-                .map((chunk) => chunk.web)
-                .filter(Boolean);
-            }
+              if (audio) {
+                this.audioService.playAudioChunk(audio.data);
+              }
 
-            const interrupted = message.serverContent?.interrupted;
-            if (interrupted) {
-              this.audioService.interruptPlayback();
-            }
+              const grounding = (message.serverContent as any)?.candidates?.[0]
+                ?.groundingMetadata;
+              if (grounding?.groundingChunks?.length) {
+                this.searchResults = grounding.groundingChunks
+                  .map((chunk) => chunk.web)
+                  .filter(Boolean);
+              }
+
+              const interrupted = message.serverContent?.interrupted;
+              if (interrupted) {
+                this.audioService.interruptPlayback();
+              }
+            },
+            onerror: (e: ErrorEvent) => {
+              this.updateError(e.message);
+              this.logEvent(`Erro de conexão: ${e.message}`, 'error');
+            },
+            onclose: (e: CloseEvent) => {
+              this.updateStatus('Conexão fechada: ' + e.reason);
+              this.logEvent(`Conexão fechada: ${e.reason}`, 'disconnect');
+              // If we were recording when the connection dropped, stop the recording.
+              if (this.isRecording) {
+                this.audioService.stop();
+                this.isRecording = false;
+                this.updateStatus(
+                  'Gravação interrompida. A conexão foi fechada.',
+                );
+                this.logEvent(
+                  'Gravação interrompida devido à desconexão.',
+                  'record',
+                );
+              }
+            },
           },
-          onerror: (e: ErrorEvent) => {
-            this.updateError(e.message);
-            this.logEvent(`Erro de conexão: ${e.message}`, 'error');
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Orus'}},
+              languageCode: 'pt-BR',
+            },
+            systemInstruction: this.systemInstruction,
           },
-          onclose: (e: CloseEvent) => {
-            this.updateStatus('Conexão fechada: ' + e.reason);
-            this.logEvent(`Conexão fechada: ${e.reason}`, 'disconnect');
-            // If we were recording when the connection dropped, stop the recording.
-            if (this.isRecording) {
-              this.audioService.stop();
-              this.isRecording = false;
-              this.updateStatus(
-                'Gravação interrompida. A conexão foi fechada.',
-              );
-              this.logEvent(
-                'Gravação interrompida devido à desconexão.',
-                'record',
-              );
-            }
-          },
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Orus'}},
-            languageCode: 'pt-BR',
-          },
-          systemInstruction: this.systemInstruction,
-        },
-      });
-    } catch (e) {
-      console.error(e);
-      this.updateError((e as Error).message);
+        });
+        // If connection is successful, clear any previous error and return
+        this.error = '';
+        return;
+      } catch (e) {
+        console.error(`Falha ao conectar com o modelo ${model}:`, e);
+        this.logEvent(
+          `Falha ao conectar com o modelo ${model}: ${(e as Error).message}`,
+          'error',
+        );
+        lastError = e as Error;
+      }
+    }
+
+    // If the loop completes, it means all models failed to connect.
+    if (lastError) {
+      this.updateError(`Falha ao conectar ao assistente: ${lastError.message}`);
     }
   }
 
@@ -208,7 +229,7 @@ export class GdmLiveAudio extends LitElement {
     try {
       await this.audioService.start();
       this.isRecording = true;
-      this.updateStatus('🔴 Gravando... Fale agora.');
+      this.updateStatus('Estou ouvindo, Fale agora.');
       this.logEvent('Gravação iniciada.', 'record');
     } catch (err) {
       console.error('Error starting recording:', err);
