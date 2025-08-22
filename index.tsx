@@ -14,6 +14,7 @@ import type {
   SearchResult,
   TimelineEvent,
   AnalysisCallbacks,
+  SavedSession,
 } from './types';
 
 // Import the new shell and view components
@@ -22,11 +23,14 @@ import './assistant-view';
 
 // Import sub-components that are passed as slots or used directly
 import './analysis-modal'; // for gdm-analysis-panel
+import './history-modal';
 
 // Refactored logic handlers
 import {ContentAnalysisManager} from './content-analysis-manager';
 import {generateCompositeSystemInstruction} from './system-instruction-builder';
 import {AudioService} from './audio-service';
+
+const LOCAL_STORAGE_KEY = 'gemini-live-sessions';
 
 // =================================================================
 // MAIN LIT COMPONENT (NOW ACTING AS A CONTROLLER)
@@ -43,18 +47,23 @@ export class GdmLiveAudio extends LitElement {
   };
   @state() showAnalysisPanel = false;
   @state() showTimelineModal = false;
+  @state() showHistoryModal = false;
   @state() searchResults: SearchResult[] = [];
   @state() timelineEvents: TimelineEvent[] = [];
   @state() analyses: Analysis[] = [];
+  @state() savedSessions: SavedSession[] = [];
   @state() systemInstruction =
     'Você é um assistente de voz prestativo que fala português do Brasil. Você não tem a capacidade de pesquisar na internet.';
   @state() inputNode?: GainNode;
   @state() outputNode?: GainNode;
+  @state() activePersona: string | null = null;
 
   private client: GoogleGenAI;
   private session: Session;
   private contentAnalysisManager: ContentAnalysisManager;
   private audioService: AudioService;
+  private readonly CONTEXT_WINDOW_SIZE = 1_000_000;
+  private lastLoggedSources = '';
 
   private readonly models = [
     'gemini-2.5-flash-preview-native-audio-dialog',
@@ -88,6 +97,7 @@ export class GdmLiveAudio extends LitElement {
     this.outputNode = this.audioService.outputNode;
 
     this.logEvent('Assistente inicializado.', 'info');
+    this.loadSessionsFromStorage();
     this.initSession();
   }
 
@@ -111,10 +121,26 @@ export class GdmLiveAudio extends LitElement {
 
     this.systemInstruction =
       newSystemInstruction ||
-      'Você é um assistente de voz prestativo que fala português do Brasil. Você não tem a capacidade de pesquisar na internet.';
+      generateCompositeSystemInstruction(this.analyses, this.activePersona);
 
     if (!newSystemInstruction) {
       this.logEvent('Sessão reiniciada para o modo geral.', 'info');
+    }
+
+    const config: any = {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Orus'}},
+        languageCode: 'pt-BR',
+      },
+      systemInstruction: this.systemInstruction,
+      contextWindowCompression: {slidingWindow: {}},
+    };
+
+    // If there is no specific content to analyze, enable Google Search.
+    if (this.analyses.length === 0) {
+      config.tools = [{googleSearch: {}}];
+      this.logEvent('Busca do Google ativada para respostas factuais.', 'info');
     }
 
     this.updateStatus('Conectando ao assistente...');
@@ -142,10 +168,35 @@ export class GdmLiveAudio extends LitElement {
 
               const grounding = (message.serverContent as any)?.candidates?.[0]
                 ?.groundingMetadata;
+
               if (grounding?.groundingChunks?.length) {
-                this.searchResults = grounding.groundingChunks
-                  .map((chunk) => chunk.web)
+                const sources: SearchResult[] = grounding.groundingChunks
+                  .map((chunk: any) => chunk.web)
                   .filter(Boolean);
+
+                if (sources.length > 0) {
+                  this.searchResults = sources;
+
+                  const sourcesKey = sources
+                    .map((s) => s.uri)
+                    .sort()
+                    .join(',');
+
+                  if (sourcesKey && sourcesKey !== this.lastLoggedSources) {
+                    this.lastLoggedSources = sourcesKey;
+
+                    let logMessage = `O assistente usou ${sources.length} fonte(s) para a resposta:`;
+                    sources.forEach((source: SearchResult) => {
+                      logMessage += `\n • ${source.title || source.uri}`;
+                    });
+
+                    this.logEvent(logMessage, 'info');
+                  }
+                }
+              } else {
+                // Reset when a message without sources arrives, so the next grounded
+                // answer can be logged.
+                this.lastLoggedSources = '';
               }
 
               const interrupted = message.serverContent?.interrupted;
@@ -174,17 +225,11 @@ export class GdmLiveAudio extends LitElement {
               }
             },
           },
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Orus'}},
-              languageCode: 'pt-BR',
-            },
-            systemInstruction: this.systemInstruction,
-          },
+          config: config,
         });
         // If connection is successful, clear any previous error and return
         this.error = '';
+        this.logEvent('Compressão da janela de contexto habilitada.', 'info');
         return;
       } catch (e) {
         console.error(`Falha ao conectar com o modelo ${model}:`, e);
@@ -265,7 +310,7 @@ export class GdmLiveAudio extends LitElement {
 
   async handleAnalysisSubmit(e: CustomEvent) {
     if (this.processingState.active) return;
-    const {urlOrTopic, file} = e.detail;
+    const {urlOrTopic, file, analysisMode} = e.detail;
 
     if (!urlOrTopic && !file) {
       this.updateError('Forneça uma URL, um tópico ou carregue um arquivo.');
@@ -287,13 +332,32 @@ export class GdmLiveAudio extends LitElement {
         await this.contentAnalysisManager.handleAnalysisRequest(
           urlOrTopic,
           file,
+          analysisMode,
           this.analyses,
+          this.activePersona,
           callbacks,
         );
 
       this.logEvent('Análise concluída com sucesso.', 'success');
       this.analyses = newAnalyses;
-      this.logEvent(`Contexto adicionado: "${newAnalysis.title}"`, 'success');
+
+      const summarySize = newAnalysis.summary.length;
+      const percentageUsed = (summarySize / this.CONTEXT_WINDOW_SIZE) * 100;
+      this.logEvent(
+        `Contexto de "${
+          newAnalysis.title
+        }" adicionado, consumindo ${percentageUsed.toFixed(
+          4,
+        )}% da janela de contexto.`,
+        'info',
+      );
+
+      if (this.analyses.length >= 5) {
+        this.logEvent(
+          'Sugestão: A sessão contém múltiplos contextos. Para tópicos não relacionados, considere reiniciar a sessão para otimizar o foco.',
+          'info',
+        );
+      }
 
       await this.initSession(newSystemInstruction);
 
@@ -317,10 +381,17 @@ export class GdmLiveAudio extends LitElement {
     this.logEvent('Contexto removido.', 'info');
 
     if (this.analyses.length === 0) {
-      this.reset();
+      // Keep the persona, just remove content
+      const instruction = generateCompositeSystemInstruction(
+        [],
+        this.activePersona,
+      );
+      await this.initSession(instruction);
+      this.updateStatus('Contexto removido. Sessão atualizada.');
     } else {
       const compositeInstruction = generateCompositeSystemInstruction(
         this.analyses,
+        this.activePersona,
       );
       await this.initSession(compositeInstruction);
       this.updateStatus('Contexto removido. Sessão atualizada.');
@@ -328,14 +399,165 @@ export class GdmLiveAudio extends LitElement {
   }
 
   private reset() {
+    const isSessionWorthSaving =
+      this.analyses.length > 0 ||
+      this.activePersona !== null ||
+      this.timelineEvents.some((event) => event.type === 'record');
+
+    if (isSessionWorthSaving) {
+      this.saveCurrentSession();
+    }
+
+    // Reset state for the new session
     this.analyses = [];
     this.searchResults = [];
-    this.initSession(); // Re-initializes with default prompt
-    this.updateStatus('Sessão reiniciada.');
+    this.timelineEvents = [];
+    this.activePersona = null;
+    this.initSession();
+
+    if (isSessionWorthSaving) {
+      this.updateStatus('Nova sessão iniciada.');
+      this.logEvent('Nova sessão iniciada.', 'info');
+    } else {
+      this.updateStatus('Sessão reiniciada.');
+      this.logEvent(
+        'Sessão reiniciada, todos os contextos e persona foram limpos.',
+        'info',
+      );
+    }
+  }
+
+  private clearContexts() {
+    this.analyses = [];
+    this.searchResults = [];
+
+    const instruction = generateCompositeSystemInstruction(
+      [],
+      this.activePersona,
+    );
+    this.initSession(instruction);
+    this.updateStatus('Contextos limpos. A persona foi mantida.');
     this.logEvent(
-      'Sessão reiniciada e todos os contextos foram limpos.',
+      'Todos os contextos da sessão foram limpos. A persona ativa foi mantida.',
       'info',
     );
+  }
+
+  private async handlePersonaChange(e: CustomEvent) {
+    this.activePersona = e.detail.persona;
+    const personaName =
+      this.activePersona
+        ?.split('-')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ') || 'Padrão';
+
+    this.logEvent(`Persona alterada para: ${personaName}`, 'info');
+
+    const newSystemInstruction = generateCompositeSystemInstruction(
+      this.analyses,
+      this.activePersona,
+    );
+    await this.initSession(newSystemInstruction);
+    this.updateStatus(`Persona alterada para ${personaName}. Pronto.`);
+  }
+
+  // =================================================================
+  // SESSION HISTORY MANAGEMENT
+  // =================================================================
+  private loadSessionsFromStorage() {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      this.savedSessions = saved ? JSON.parse(saved) : [];
+      this.logEvent(
+        `Carregadas ${this.savedSessions.length} sessões do histórico.`,
+        'history',
+      );
+    } catch (e) {
+      console.error('Falha ao carregar sessões:', e);
+      this.savedSessions = [];
+      this.updateError('Não foi possível carregar o histórico de sessões.');
+    }
+  }
+
+  private saveSessionsToStorage() {
+    try {
+      localStorage.setItem(
+        LOCAL_STORAGE_KEY,
+        JSON.stringify(this.savedSessions),
+      );
+    } catch (e) {
+      console.error('Falha ao salvar sessões:', e);
+      this.updateError('Não foi possível salvar a sessão no histórico.');
+    }
+  }
+
+  private saveCurrentSession() {
+    const date = new Date();
+    const defaultTitle = `Conversa Geral - ${date.toLocaleString('pt-BR')}`;
+    let title = defaultTitle;
+
+    if (this.analyses.length > 0) {
+      title = this.analyses[0].title;
+      if (this.analyses.length > 1) {
+        title += ` (+${this.analyses.length - 1} contextos)`;
+      }
+    } else if (this.activePersona) {
+      title = `Persona: ${
+        this.activePersona
+          .split('-')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ') || 'Padrão'
+      } - ${date.toLocaleString('pt-BR')}`;
+    }
+
+    const newSession: SavedSession = {
+      id: date.toISOString(),
+      title,
+      analyses: this.analyses,
+      timelineEvents: this.timelineEvents,
+      systemInstruction: this.systemInstruction,
+      searchResults: this.searchResults,
+      activePersona: this.activePersona,
+    };
+
+    // Add to the beginning of the list
+    this.savedSessions = [newSession, ...this.savedSessions];
+    this.saveSessionsToStorage();
+    this.logEvent(`Sessão "${title}" salva no histórico.`, 'history');
+  }
+
+  private async loadSession(e: CustomEvent) {
+    const {sessionId} = e.detail;
+    const sessionToLoad = this.savedSessions.find((s) => s.id === sessionId);
+
+    if (sessionToLoad) {
+      this.analyses = sessionToLoad.analyses;
+      this.timelineEvents = sessionToLoad.timelineEvents;
+      this.searchResults = sessionToLoad.searchResults;
+      this.activePersona = sessionToLoad.activePersona;
+
+      await this.initSession(sessionToLoad.systemInstruction);
+      this.showHistoryModal = false;
+      this.updateStatus(`Sessão "${sessionToLoad.title}" carregada.`);
+      this.logEvent(`Sessão "${sessionToLoad.title}" carregada.`, 'history');
+    } else {
+      this.updateError('Não foi possível encontrar a sessão para carregar.');
+    }
+  }
+
+  private deleteSession(e: CustomEvent) {
+    const {sessionId} = e.detail;
+    const sessionToDelete = this.savedSessions.find((s) => s.id === sessionId);
+    if (sessionToDelete) {
+      this.savedSessions = this.savedSessions.filter(
+        (s) => s.id !== sessionId,
+      );
+      this.saveSessionsToStorage();
+      this.logEvent(
+        `Sessão "${sessionToDelete.title}" excluída do histórico.`,
+        'history',
+      );
+    }
   }
 
   render() {
@@ -359,14 +581,24 @@ export class GdmLiveAudio extends LitElement {
           .showTimelineModal=${this.showTimelineModal}
           .timelineEvents=${this.timelineEvents}
           .processingState=${this.processingState}
+          .showHistoryModal=${this.showHistoryModal}
+          .savedSessions=${this.savedSessions}
+          .activePersona=${this.activePersona}
           @analysis-submit=${this.handleAnalysisSubmit}
           @analysis-remove=${this.removeAnalysis}
           @start-recording=${this.startRecording}
           @stop-recording=${this.stopRecording}
           @reset=${this.reset}
+          @clear-contexts=${this.clearContexts}
           @show-analysis=${() => (this.showAnalysisPanel = !this.showAnalysisPanel)}
           @show-timeline=${() => (this.showTimelineModal = true)}
-          @close-timeline=${() => (this.showTimelineModal = false)}>
+          @close-timeline=${() => (this.showTimelineModal = false)}
+          @show-history=${() => (this.showHistoryModal = true)}
+          @close-history=${() => (this.showHistoryModal = false)}
+          @save-session=${this.saveCurrentSession}
+          @load-session=${this.loadSession}
+          @delete-session=${this.deleteSession}
+          @persona-change=${this.handlePersonaChange}>
         </gdm-assistant-view>
       </gdm-assistant-shell>
     `;

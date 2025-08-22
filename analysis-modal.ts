@@ -9,6 +9,7 @@ import {marked} from 'marked';
 import jsPDF from 'jspdf';
 import type {Analysis} from './types';
 import './video-player.js';
+import './copy-button.ts';
 
 @customElement('gdm-analysis-panel')
 export class GdmAnalysisPanel extends LitElement {
@@ -17,6 +18,8 @@ export class GdmAnalysisPanel extends LitElement {
 
   @state() private selectedAnalysisId: string | null = null;
   @state() private pdfBlobUrl: string | null = null;
+  @state() private isActionsMenuOpen = false;
+  @state() private activeTab: 'analysis' | 'json' = 'analysis';
   private lastProcessedPreviewData: string | undefined = undefined;
 
   static styles = css`
@@ -38,7 +41,7 @@ export class GdmAnalysisPanel extends LitElement {
       justify-content: space-between;
       align-items: center;
       padding: 24px;
-      padding-bottom: 0;
+      padding-bottom: 16px;
       flex-shrink: 0;
     }
 
@@ -47,6 +50,17 @@ export class GdmAnalysisPanel extends LitElement {
       color: #5078ff;
     }
 
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .actions-menu-container {
+      position: relative;
+    }
+
+    .actions-menu-button,
     .panel-header .close-button {
       background: none;
       border: none;
@@ -60,9 +74,52 @@ export class GdmAnalysisPanel extends LitElement {
       justify-content: center;
     }
 
+    .actions-menu-button:hover,
     .panel-header .close-button:hover {
       color: #fff;
       background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .actions-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      background: #2a2a2a;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 8px;
+      z-index: 10;
+      min-width: 200px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .actions-dropdown button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      text-align: left;
+      transition: background-color 0.2s;
+    }
+    .actions-dropdown button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .actions-dropdown button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: transparent;
     }
 
     .panel-body {
@@ -71,7 +128,7 @@ export class GdmAnalysisPanel extends LitElement {
       flex-direction: column;
       overflow: hidden;
       padding: 24px;
-      padding-top: 16px;
+      padding-top: 0;
     }
 
     .analysis-main {
@@ -146,15 +203,90 @@ export class GdmAnalysisPanel extends LitElement {
       background: #fff;
     }
 
-    .analysis-text-content {
+    .tab-nav {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
+      margin-top: 16px;
+    }
+    .tab-button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: none;
+      border: none;
+      color: #aaa;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px; /* Overlap the container border */
+      transition: all 0.2s;
+    }
+    .tab-button svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .tab-button:hover {
+      color: #fff;
+    }
+    .tab-button.active {
+      color: #5078ff;
+      border-bottom-color: #5078ff;
+    }
+
+    .tab-content {
+      flex-grow: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .analysis-text-content,
+    .workflow-json-container {
       flex-grow: 1;
       overflow-y: auto;
-      padding: 1px 16px;
       background: rgba(0, 0, 0, 0.2);
       border-radius: 8px;
       line-height: 1.6;
       color: #eee;
+      margin-top: 16px;
     }
+
+    .analysis-text-content {
+      padding: 1px 16px;
+    }
+
+    .workflow-json-container {
+      position: relative;
+      padding: 0;
+    }
+
+    .workflow-json-container pre {
+      padding: 16px;
+      margin: 0;
+      height: 100%;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+
+    .workflow-json-container code {
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .json-copy-button {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 2;
+    }
+
     .analysis-text-content h1,
     .analysis-text-content h2,
     .analysis-text-content h3,
@@ -197,38 +329,6 @@ export class GdmAnalysisPanel extends LitElement {
       white-space: pre-wrap;
     }
 
-    .modal-actions {
-      display: flex;
-      justify-content: flex-start;
-      gap: 12px;
-      margin-top: 24px;
-      flex-shrink: 0;
-      flex-wrap: wrap;
-    }
-    .modal-actions button {
-      padding: 10px 20px;
-      border-radius: 20px;
-      border: none;
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: background-color 0.2s;
-    }
-    .modal-actions button:hover {
-      background: rgba(255, 255, 255, 0.2);
-    }
-    .modal-actions .primary-btn {
-      background: #5078ff;
-    }
-    .modal-actions .primary-btn:hover {
-      background: #6a8dff;
-    }
-
     @media (max-width: 800px) {
       .panel-header {
         padding: 16px;
@@ -236,9 +336,22 @@ export class GdmAnalysisPanel extends LitElement {
       }
       .panel-body {
         padding: 16px;
+        padding-top: 0;
       }
     }
   `;
+
+  private _handleOutsideClick = (e: MouseEvent) => {
+    if (
+      !this.isActionsMenuOpen ||
+      e
+        .composedPath()
+        .includes(this.shadowRoot!.querySelector('.actions-menu-container')!)
+    ) {
+      return;
+    }
+    this.isActionsMenuOpen = false;
+  };
 
   private dataUriToBlob(dataURI: string): Blob {
     const byteString = atob(dataURI.split(',')[1]);
@@ -260,6 +373,7 @@ export class GdmAnalysisPanel extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    document.removeEventListener('click', this._handleOutsideClick);
     this.revokePdfBlobUrl();
   }
 
@@ -275,19 +389,27 @@ export class GdmAnalysisPanel extends LitElement {
         !this.analyses.find((a) => a.id === this.selectedAnalysisId))
     ) {
       this.selectedAnalysisId = this.analyses[0]?.id || null;
+      this.activeTab = 'analysis'; // Reset on new analyses
     }
 
     const currentAnalysis = this.getCurrentAnalysis();
     const previewData = currentAnalysis?.previewData;
 
-    // If the preview data has changed, update the blob URL
     if (previewData !== this.lastProcessedPreviewData) {
       this.lastProcessedPreviewData = previewData;
-      this.revokePdfBlobUrl(); // Clean up old URL
+      this.revokePdfBlobUrl();
 
       if (previewData?.startsWith('data:application/pdf')) {
         const blob = this.dataUriToBlob(previewData);
         this.pdfBlobUrl = URL.createObjectURL(blob);
+      }
+    }
+
+    if (changedProperties.has('isActionsMenuOpen')) {
+      if (this.isActionsMenuOpen) {
+        document.addEventListener('click', this._handleOutsideClick);
+      } else {
+        document.removeEventListener('click', this._handleOutsideClick);
       }
     }
   }
@@ -298,9 +420,14 @@ export class GdmAnalysisPanel extends LitElement {
     );
   }
 
+  private toggleActionsMenu() {
+    this.isActionsMenuOpen = !this.isActionsMenuOpen;
+  }
+
   private _handleAnalysisSelectionChange(e: Event) {
     const selectElement = e.target as HTMLSelectElement;
     this.selectedAnalysisId = selectElement.value;
+    this.activeTab = 'analysis'; // Reset tab on change
   }
 
   private getCurrentAnalysis(): Analysis | undefined {
@@ -335,7 +462,6 @@ export class GdmAnalysisPanel extends LitElement {
     if (!contentElement) return;
 
     try {
-      // Dynamically import html2canvas
       const {default: html2canvas} = await import('html2canvas');
       const pdf = new jsPDF({orientation: 'p', unit: 'pt', format: 'a4'});
       await pdf.html(contentElement, {
@@ -371,6 +497,142 @@ export class GdmAnalysisPanel extends LitElement {
     }
   }
 
+  private async copyAnalysis() {
+    const currentAnalysis = this.getCurrentAnalysis();
+    if (!currentAnalysis) return;
+
+    try {
+      await navigator.clipboard.writeText(currentAnalysis.summary);
+    } catch (err) {
+      console.error('Falha ao copiar o texto: ', err);
+      // O botão reverterá para o estado 'idle' em caso de falha.
+      throw err;
+    }
+  }
+
+  private async copyWorkflowJson(workflowJson: object) {
+    if (!workflowJson) return;
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(workflowJson, null, 2),
+      );
+    } catch (err) {
+      console.error('Falha ao copiar o JSON: ', err);
+      throw err;
+    }
+  }
+
+  private renderDefaultAnalysis(analysis: Analysis) {
+    return html`
+      <div id="analysis-content-for-pdf" class="analysis-text-content">
+        ${unsafeHTML(marked.parse(analysis.summary) as string)}
+      </div>
+    `;
+  }
+
+  private renderWorkflowTabs(analysis: Analysis) {
+    let summaryMarkdown = 'Nenhum resumo fornecido.';
+    let workflowJson = {};
+    let parseError = false;
+
+    try {
+      const parsed = JSON.parse(analysis.summary);
+      if (parsed.summary_base64) {
+        // Handle potential Unicode characters in the markdown
+        summaryMarkdown = decodeURIComponent(escape(atob(parsed.summary_base64)));
+      } else if (parsed.summary) { // Fallback for old format
+        summaryMarkdown = parsed.summary;
+      }
+      workflowJson = parsed.workflow_json || {};
+    } catch (e) {
+      console.error('Falha ao analisar o resumo do fluxo de trabalho JSON:', e);
+      parseError = true;
+      // Show the raw content if parsing fails
+      summaryMarkdown = analysis.summary;
+    }
+
+    if (parseError) {
+      return html`
+        <div id="analysis-content-for-pdf" class="analysis-text-content">
+          <p>
+            <strong
+              >Erro ao processar a análise do fluxo de trabalho.</strong
+            >
+          </p>
+          <pre><code>${summaryMarkdown}</code></pre>
+        </div>
+      `;
+    }
+
+    return html`
+      <div class="tab-nav">
+        <button
+          class="tab-button ${this.activeTab === 'analysis' ? 'active' : ''}"
+          @click=${() => (this.activeTab = 'analysis')}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="20px"
+            viewBox="0 -960 960 960"
+            width="20px"
+            fill="currentColor">
+            <path
+              d="M320-240h320v-80H320v80Zm0-160h320v-80H320v80ZM240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320l240 240v480q0 33-23.5 56.5T720-80H240Zm280-520v-200H240v640h480v-440H520Z" />
+          </svg>
+          <span>Análise</span>
+        </button>
+        <button
+          class="tab-button ${this.activeTab === 'json' ? 'active' : ''}"
+          @click=${() => (this.activeTab = 'json')}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="20px"
+            viewBox="0 -960 960 960"
+            width="20px"
+            fill="currentColor">
+            <path
+              d="m321-240-57-57 179-179-179-179 57-57 236 236-236 236Zm318 0-57-57 179-179-179-179 57-57 236 236-236 236Z" />
+          </svg>
+          <span>Template N8N</span>
+        </button>
+      </div>
+      <div class="tab-content">
+        ${
+          this.activeTab === 'analysis'
+            ? html`
+                <div
+                  id="analysis-content-for-pdf"
+                  class="analysis-text-content">
+                  ${unsafeHTML(marked.parse(summaryMarkdown) as string)}
+                </div>
+              `
+            : html`
+                <div class="workflow-json-container">
+                  <gdm-button-copy
+                    class="json-copy-button"
+                    .onCopy=${() => this.copyWorkflowJson(workflowJson)}>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      height="18px"
+                      viewBox="0 -960 960 960"
+                      width="18px"
+                      fill="currentColor">
+                      <path
+                        d="M320-240q-33 0-56.5-23.5T240-320v-480q0-33 23.5-56.5T320-880h480q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H320Zm0-80h480v-480H320v480ZM160-80q-33 0-56.5-23.5T80-160v-560h80v560h560v80H160Zm160-720v480-480Z" />
+                    </svg>
+                    <span>Copiar JSON</span>
+                  </gdm-button-copy>
+                  <pre><code>${JSON.stringify(
+                    workflowJson,
+                    null,
+                    2,
+                  )}</code></pre>
+                </div>
+              `
+        }
+      </div>
+    `;
+  }
+
   render() {
     const currentAnalysis = this.getCurrentAnalysis();
     const analysisType = currentAnalysis?.type;
@@ -385,7 +647,6 @@ export class GdmAnalysisPanel extends LitElement {
     } else if (isHtmlPreview && previewData) {
       const base64 = previewData.split(',')[1];
       try {
-        // This is the reverse of btoa(unescape(encodeURIComponent(str)))
         iframeProps.srcdoc = decodeURIComponent(escape(atob(base64)));
       } catch (e) {
         console.error('Failed to decode base64 HTML for srcdoc', e);
@@ -396,21 +657,64 @@ export class GdmAnalysisPanel extends LitElement {
     return html`
       <div class="panel-header">
         <h3>Análises de Conteúdo</h3>
-        <button
-          class="close-button"
-          @click=${this._close}
-          title="Fechar painel"
-          aria-label="Fechar painel">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            height="28px"
-            viewBox="0 -960 960 960"
-            width="28px"
-            fill="currentColor">
-            <path
-              d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
-          </svg>
-        </button>
+        <div class="header-controls">
+          <div class="actions-menu-container">
+            <button
+              class="actions-menu-button"
+              @click=${this.toggleActionsMenu}
+              ?disabled=${!currentAnalysis}
+              title="Ações"
+              aria-label="Ações">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                height="24px"
+                viewBox="0 -960 960 960"
+                width="24px"
+                fill="currentColor">
+                <path
+                  d="M480-160q-33 0-56.5-23.5T400-240q0-33 23.5-56.5T480-320q33 0 56.5 23.5T560-240q0 33-23.5 56.5T480-160Zm0-240q-33 0-56.5-23.5T400-480q0-33 23.5-56.5T480-560q33 0 56.5 23.5T560-480q0 33-23.5 56.5T480-400Zm0-240q-33 0-56.5-23.5T400-720q0-33 23.5-56.5T480-800q33 0 56.5 23.5T560-720q0 33-23.5 56.5T480-640Z" />
+              </svg>
+            </button>
+            ${
+              this.isActionsMenuOpen
+                ? html`
+                    <div class="actions-dropdown">
+                      <gdm-button-copy .onCopy=${this.copyAnalysis.bind(this)}>
+                        <span>Copiar</span>
+                      </gdm-button-copy>
+                      <button @click=${this.downloadPdf}>
+                        ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320v80H240v640h480v-400h80v400q0 33-23.5 56.5T720-80H240Zm420-520v-280l280 280h-280Z" /></svg>`}
+                        <span>PDF</span>
+                      </button>
+                      <button @click=${this.downloadMarkdown}>
+                        ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M480-320 280-520l56-56 104 104v-328h80v328l104-104 56 56-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z" /></svg>`}
+                        <span>MD</span>
+                      </button>
+                      <button @click=${this.shareAnalysis}>
+                        ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-14.5L323-400q-21 15-47.5 23T220-360q-50 0-85-35t-35-85q0-50 35-85t85-35q30 0 56.5 10.5T323-560l281-171q-1-5-1.5-11.5T602-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-28 0-53.5-9.5T620-640L340-468q1 7 1.5 13.5t.5 14.5q0 7-1 14.5t-3 14.5l281 171q21-14 47-21.5t54-7.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-640q17 0 28.5-11.5T760-760q0-17-11.5-28.5T720-800q-17 0-28.5 11.5T680-760q0 17 11.5 28.5T720-720ZM220-440q17 0 28.5-11.5T260-480q0-17-11.5-28.5T220-520q-17 0-28.5 11.5T180-480q0 17 11.5 28.5T220-440Zm500 280q17 0 28.5-11.5T760-200q0-17-11.5-28.5T720-240q-17 0-28.5 11.5T680-200q0 17 11.5 28.5T720-160Z" /></svg>`}
+                        <span>Compartilhar</span>
+                      </button>
+                    </div>
+                  `
+                : ''
+            }
+          </div>
+          <button
+            class="close-button"
+            @click=${this._close}
+            title="Fechar painel"
+            aria-label="Fechar painel">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              height="28px"
+              viewBox="0 -960 960 960"
+              width="28px"
+              fill="currentColor">
+              <path
+                d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="panel-body">
         <div class="analysis-main">
@@ -423,9 +727,12 @@ export class GdmAnalysisPanel extends LitElement {
                       .value=${this.selectedAnalysisId || ''}
                       aria-label="Selecionar análise para visualizar">
                       ${this.analyses.map(
-                        (analysis) => html`
-                          <option value=${analysis.id}>${analysis.title}</option>
-                        `,
+                        (analysis) =>
+                          html`
+                            <option value=${analysis.id}>
+                              ${analysis.title}
+                            </option>
+                          `,
                       )}
                     </select>
                   </div>
@@ -436,60 +743,44 @@ export class GdmAnalysisPanel extends LitElement {
                   </h4>
                 `
           }
-          ${previewData
-            ? html`
-                <div class="preview-container">
-                  ${analysisType === 'youtube' || analysisType === 'video'
-                    ? html`
-                        <gdm-video-player .src=${previewData}></gdm-video-player>
-                      `
-                    : isImagePreview
-                    ? html`
-                        <img
-                          class="preview-image"
-                          src=${previewData}
-                          alt="Preview of ${currentAnalysis.title}" />
-                      `
-                    : isPdfPreview || isHtmlPreview
-                    ? html`<iframe
+          ${
+            previewData
+              ? html`
+                  <div class="preview-container">
+                    ${analysisType === 'youtube' ||
+                    analysisType === 'video' ||
+                    analysisType === 'workflow'
+                      ? html`
+                          <gdm-video-player
+                            .src=${previewData}></gdm-video-player>
+                        `
+                      : isImagePreview
+                      ? html`
+                          <img
+                            class="preview-image"
+                            src=${previewData}
+                            alt="Preview of ${currentAnalysis.title}" />
+                        `
+                      : isPdfPreview || isHtmlPreview
+                      ? html`<iframe
                           class="preview-iframe"
                           .src=${iframeProps.src}
                           .srcdoc=${iframeProps.srcdoc}
-                          title="Preview of ${currentAnalysis.title}"
-                        ></iframe>`
-                    : ''}
-                </div>
-              `
-            : ''}
-
-          <div id="analysis-content-for-pdf" class="analysis-text-content">
-            ${currentAnalysis
-              ? unsafeHTML(marked.parse(currentAnalysis.summary) as string)
-              : html`<p>Nenhuma análise selecionada.</p>`}
-          </div>
-          <div class="modal-actions">
-            <button
-              @click=${this.downloadPdf}
-              title="Baixar como PDF"
-              ?disabled=${!currentAnalysis}>
-              ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-640q0-33 23.5-56.5T240-880h320v80H240v640h480v-400h80v400q0 33-23.5 56.5T720-80H240Zm420-520v-280l280 280h-280Z" /></svg>`}
-              <span>PDF</span>
-            </button>
-            <button
-              @click=${this.downloadMarkdown}
-              title="Baixar como Markdown (.md)"
-              ?disabled=${!currentAnalysis}>
-              ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M480-320 280-520l56-56 104 104v-328h80v328l104-104 56 56-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z" /></svg>`}
-              <span>MD</span>
-            </button>
-            <button
-              @click=${this.shareAnalysis}
-              title="Compartilhar Análise"
-              ?disabled=${!currentAnalysis}>
-              ${svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-14.5L323-400q-21 15-47.5 23T220-360q-50 0-85-35t-35-85q0-50 35-85t85-35q30 0 56.5 10.5T323-560l281-171q-1-5-1.5-11.5T602-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-28 0-53.5-9.5T620-640L340-468q1 7 1.5 13.5t.5 14.5q0 7-1 14.5t-3 14.5l281 171q21-14 47-21.5t54-7.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-640q17 0 28.5-11.5T760-760q0-17-11.5-28.5T720-800q-17 0-28.5 11.5T680-760q0 17 11.5 28.5T720-720ZM220-440q17 0 28.5-11.5T260-480q0-17-11.5-28.5T220-520q-17 0-28.5 11.5T180-480q0 17 11.5 28.5T220-440Zm500 280q17 0 28.5-11.5T760-200q0-17-11.5-28.5T720-240q-17 0-28.5 11.5T680-200q0 17 11.5 28.5T720-160Z" /></svg>`}
-              <span>Compartilhar</span>
-            </button>
-          </div>
+                          title="Preview of ${currentAnalysis.title}"></iframe>`
+                      : ''}
+                  </div>
+                `
+              : ''
+          }
+          ${
+            currentAnalysis
+              ? currentAnalysis.type === 'workflow'
+                ? this.renderWorkflowTabs(currentAnalysis)
+                : this.renderDefaultAnalysis(currentAnalysis)
+              : html`<div class="analysis-text-content">
+                  <p>Nenhuma análise selecionada.</p>
+                </div>`
+          }
         </div>
       </div>
     `;

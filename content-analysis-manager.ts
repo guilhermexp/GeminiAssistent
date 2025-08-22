@@ -31,7 +31,9 @@ export class ContentAnalysisManager {
   public async handleAnalysisRequest(
     urlOrTopic: string,
     file: File | null,
+    analysisMode: 'default' | 'vibecode' | 'workflow',
     currentAnalyses: Analysis[],
+    activePersona: string | null,
     callbacks: AnalysisCallbacks,
   ): Promise<{
     newAnalyses: Analysis[];
@@ -41,6 +43,7 @@ export class ContentAnalysisManager {
     const result = await this.analysisService.analyze(
       urlOrTopic,
       file,
+      analysisMode,
       callbacks,
     );
 
@@ -61,8 +64,10 @@ export class ContentAnalysisManager {
     };
 
     const newAnalyses = [...currentAnalyses, newAnalysis];
-    const newSystemInstruction =
-      generateCompositeSystemInstruction(newAnalyses);
+    const newSystemInstruction = generateCompositeSystemInstruction(
+      newAnalyses,
+      activePersona,
+    );
 
     return {newAnalyses, newSystemInstruction, newAnalysis};
   }

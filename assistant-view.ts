@@ -10,12 +10,15 @@ import type {
   ProcessingState,
   SearchResult,
   TimelineEvent,
+  SavedSession,
 } from './types';
 
 // Import child components that this view renders.
 import './analysis-form';
 import './media-controls';
 import './timeline-modal';
+import './history-modal';
+import './user-profile';
 import './visual-3d';
 
 /**
@@ -32,12 +35,15 @@ export class AssistantView extends LitElement {
   @property({type: Boolean}) isRecording = false;
   @property({type: Array}) analyses: Analysis[] = [];
   @property({type: Boolean}) showTimelineModal = false;
+  @property({type: Boolean}) showHistoryModal = false;
   @property({type: Array}) timelineEvents: TimelineEvent[] = [];
+  @property({type: Array}) savedSessions: SavedSession[] = [];
   @property({type: Object}) processingState: ProcessingState = {
     active: false,
     step: '',
     progress: 0,
   };
+  @property({type: String}) activePersona: string | null = null;
 
   static styles = css`
     :host {
@@ -45,6 +51,13 @@ export class AssistantView extends LitElement {
       width: 100%;
       height: 100%;
       position: relative;
+    }
+
+    .user-profile-container {
+      position: absolute;
+      top: 2vh;
+      right: 2vw;
+      z-index: 20;
     }
 
     #status {
@@ -122,16 +135,51 @@ export class AssistantView extends LitElement {
     );
   }
 
+  private onHistoryModalClose() {
+    this.dispatchEvent(
+      new CustomEvent('close-history', {bubbles: true, composed: true}),
+    );
+  }
+
+  private _onShowHistory() {
+    this.dispatchEvent(
+      new CustomEvent('show-history', {bubbles: true, composed: true}),
+    );
+  }
+
+  private _onPersonaChange(e: CustomEvent) {
+    this.dispatchEvent(
+      new CustomEvent('persona-change', {
+        detail: e.detail,
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
   render() {
     return html`
       <gdm-timeline-modal
         .show=${this.showTimelineModal}
         .events=${this.timelineEvents}
+        .processingState=${this.processingState}
         @close=${this.onTimelineModalClose}></gdm-timeline-modal>
+
+      <gdm-history-modal
+        .show=${this.showHistoryModal}
+        .sessions=${this.savedSessions}
+        @close=${this.onHistoryModalClose}></gdm-history-modal>
 
       <gdm-analysis-form
         .analyses=${this.analyses}
         .processingState=${this.processingState}></gdm-analysis-form>
+
+      <div class="user-profile-container">
+        <gdm-user-profile
+          .activePersona=${this.activePersona}
+          @show-history=${this._onShowHistory}
+          @persona-change=${this._onPersonaChange}></gdm-user-profile>
+      </div>
 
       <div id="status" class=${this.error ? 'error' : ''}>
         ${this.error || this.status}

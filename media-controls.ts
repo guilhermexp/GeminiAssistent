@@ -88,7 +88,8 @@ export class GdmMediaControls extends LitElement {
           id="resetButton"
           @click=${() => this._dispatch('reset')}
           ?disabled=${this.isRecording}
-          aria-label="Reiniciar sessão e limpar todos os contextos">
+          aria-label="Reiniciar sessão e limpar todos os contextos"
+          title="Reiniciar sessão (limpa contextos e persona)">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             height="24px"
@@ -97,6 +98,22 @@ export class GdmMediaControls extends LitElement {
             fill="#ffffff">
             <path
               d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z" />
+          </svg>
+        </button>
+        <button
+          id="clearButton"
+          @click=${() => this._dispatch('clear-contexts')}
+          ?disabled=${this.isRecording || !this.hasAnalyses}
+          aria-label="Limpar contextos da sessão atual"
+          title="Limpar contextos (mantém a persona)">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            height="24px"
+            viewBox="0 -960 960 960"
+            width="24px"
+            fill="#ffffff">
+            <path
+              d="M280-120 160-240v-480h80v454l104 106-64 60Zm200 0-140-140 56-56 140 140-56 56Zm160-160L500-420l56-56 140 140-56 56ZM240-720v-80h480v80H240Z" />
           </svg>
         </button>
         ${this.hasAnalyses

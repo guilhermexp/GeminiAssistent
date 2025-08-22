@@ -28,15 +28,16 @@ export class AnalysisService {
   public async analyze(
     urlOrTopic: string,
     file: File | null,
+    analysisMode: 'default' | 'vibecode' | 'workflow',
     callbacks: AnalysisCallbacks,
   ): Promise<AnalysisResult> {
     if (file) {
-      const result = await this.analyzeFile(file, callbacks);
+      const result = await this.analyzeFile(file, analysisMode, callbacks);
       return result;
     } else {
       const input = urlOrTopic.trim();
       if (isValidUrl(input)) {
-        return this.analyzeUrl(input, callbacks);
+        return this.analyzeUrl(input, analysisMode, callbacks);
       } else {
         return this.performDeepSearch(input, callbacks);
       }
@@ -188,6 +189,7 @@ export class AnalysisService {
 
   private async analyzeFile(
     file: File,
+    analysisMode: 'default' | 'vibecode' | 'workflow',
     callbacks: AnalysisCallbacks,
   ): Promise<AnalysisResult> {
     const {setProcessingState, logEvent} = callbacks;
@@ -222,8 +224,25 @@ export class AnalysisService {
       type = 'video';
       setProcessingState(true, `Analisando vídeo...`, 50);
       previewData = `data:${mimeType};base64,${content}`;
-      const analysisPrompt =
+      let analysisPrompt: string;
+      if (analysisMode === 'vibecode') {
+        type = 'video';
+        analysisPrompt = `Você é um especialista em engenharia reversa de interfaces de aplicativos em modo 'Vibecode'. Sua tarefa é analisar este vídeo, que demonstra o uso de um aplicativo, e fornecer uma análise visual e funcional detalhada, passo a passo, para que um desenvolvedor possa recriar a funcionalidade. Sua resposta deve ser em português do Brasil e estruturada da seguinte forma:\n\n1.  **Visão Geral da Interface (UI):** Descreva o layout principal, paleta de cores, tipografia e componentes visíveis.\n2.  **Fluxo de Interação Passo a Passo:** Narre a jornada do usuário no vídeo. Para cada ação, descreva: Ação do Usuário, Elemento Interagido e Feedback Visual/Resultado.\n3.  **Análise de Ferramentas e Funcionalidades:** Para cada funcionalidade, detalhe: Propósito, Inputs, Lógica Inferida e Outputs.\n\nSeja meticuloso com todos os detalhes visuais. Este resumo será seu único conhecimento sobre o vídeo.`;
+      } else if (analysisMode === 'workflow') {
+        type = 'workflow';
+        generateContentConfig.config = {responseMimeType: 'application/json'};
+        analysisPrompt = `Você é um especialista em n8n. Sua tarefa é analisar este vídeo que demonstra um fluxo de trabalho (workflow) do n8n e extrair sua estrutura completa. O resultado final DEVE ser um objeto JSON único contendo duas chaves: "summary_base64" e "workflow_json".
+
+1.  **summary_base64**: Crie um resumo detalhado em markdown explicando o propósito geral, cada nó, sua função e como estão conectados. Em seguida, codifique esta string markdown em Base64. Este campo deve conter APENAS a string Base64.
+2.  **workflow_json**: Um objeto JSON válido que representa o fluxo de trabalho e pode ser importado diretamente no n8n. Analise meticulosamente os nós, seus parâmetros e as conexões para construir este JSON. Siga a estrutura padrão do n8n com as chaves "name", "nodes", "connections", "active", "settings", etc.
+
+Sua resposta deve ser APENAS o objeto JSON, sem nenhum texto adicional antes ou depois.`;
+      } else {
+        type = 'video';
+        analysisPrompt =
         'Você é um assistente multimodal. Analise este vídeo em detalhes. Descreva todos os elementos visuais e de áudio, o contexto e quaisquer textos visíveis. Crie um resumo detalhado. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.';
+      }
+
       contents = {
         parts: [
           {text: analysisPrompt},
@@ -310,6 +329,7 @@ ${content}`;
 
   private async analyzeYouTubeUrl(
     url: string,
+    analysisMode: 'default' | 'vibecode' | 'workflow',
     callbacks: AnalysisCallbacks,
   ): Promise<AnalysisResult> {
     const {setProcessingState, logEvent} = callbacks;
@@ -319,19 +339,37 @@ ${content}`;
     setProcessingState(true, 'Analisando vídeo com IA...', 50);
     logEvent(`Analisando YouTube: ${title}`, 'process');
 
-    const analysisPrompt = `Você é um assistente multimodal. Analise o vídeo do YouTube intitulado "${title}" a partir da URL fornecida de forma completa, processando tanto o áudio quanto os quadros visuais. Crie um resumo detalhado para que você possa responder perguntas sobre o vídeo. Sua análise deve incluir:
+    let analysisPrompt: string;
+    let type: Analysis['type'] = 'youtube';
+    const generateContentConfig: any = {model: 'gemini-2.5-flash'};
+
+    if (analysisMode === 'vibecode') {
+      analysisPrompt = `Você é um especialista em engenharia reversa de interfaces de aplicativos em modo 'Vibecode'. Sua tarefa é analisar o vídeo do YouTube intitulado "${title}", que demonstra o uso de um aplicativo, e fornecer uma análise visual e funcional detalhada, passo a passo, para que um desenvolvedor possa recriar a funcionalidade. Sua resposta deve ser em português do Brasil e estruturada da seguinte forma:\n\n1.  **Visão Geral da Interface (UI):** Descreva o layout principal, paleta de cores, tipografia e componentes visíveis.\n2.  **Fluxo de Interação Passo a Passo:** Narre a jornada do usuário no vídeo. Para cada ação, descreva: Ação do Usuário, Elemento Interagido e Feedback Visual/Resultado.\n3.  **Análise de Ferramentas e Funcionalidades:** Para cada funcionalidade, detalhe: Propósito, Inputs, Lógica Inferida e Outputs.\n\nSeja meticuloso com todos os detalhes visuais. Este resumo será seu único conhecimento sobre o vídeo.`
+    } else if (analysisMode === 'workflow') {
+        type = 'workflow';
+        generateContentConfig.config = {responseMimeType: 'application/json'};
+        analysisPrompt = `Você é um especialista em n8n. Sua tarefa é analisar este vídeo do YouTube intitulado "${title}" que demonstra um fluxo de trabalho (workflow) do n8n e extrair sua estrutura completa. O resultado final DEVE ser um objeto JSON único contendo duas chaves: "summary_base64" e "workflow_json".
+
+1.  **summary_base64**: Crie um resumo detalhado em markdown explicando o propósito geral, cada nó, sua função e como estão conectados. Em seguida, codifique esta string markdown em Base64. Este campo deve conter APENAS a string Base64.
+2.  **workflow_json**: Um objeto JSON válido que representa o fluxo de trabalho e pode ser importado diretamente no n8n. Analise meticulosamente os nós, seus parâmetros e as conexões para construir este JSON. Siga a estrutura padrão do n8n com as chaves "name", "nodes", "connections", "active", "settings", etc.
+
+Sua resposta deve ser APENAS o objeto JSON, sem nenhum texto adicional antes ou depois.`;
+    } else {
+      analysisPrompt = `Você é um assistente multimodal. Analise o vídeo do YouTube intitulado "${title}" a partir da URL fornecida de forma completa, processando tanto o áudio quanto os quadros visuais. Crie um resumo detalhado para que você possa responder perguntas sobre o vídeo. Sua análise deve incluir:
 1. **Conteúdo Falado**: Tópicos principais, argumentos e conclusões.
 2. **Análise Visual**: Descrição de cenas importantes, pessoas (e suas ações ou aparências, como cor de roupa), objetos, textos na tela e o ambiente geral.
 3. **Eventos Chave**: Uma cronologia de eventos importantes, combinando informações visuais e de áudio, com timestamps se possível.
 
 Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre o vídeo. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.`;
+    }
+
     const contents = {
       parts: [
         {text: analysisPrompt},
         {fileData: {mimeType: 'video/mp4', fileUri: url}},
       ],
     };
-    const generateContentConfig = {model: 'gemini-2.5-flash'};
+
     const summary = await this.analyzeContentAndGenerateSummary(
       contents,
       generateContentConfig,
@@ -341,7 +379,7 @@ Seja o mais detalhado possível. Este resumo será seu único conhecimento sobre
       title,
       source: url,
       persona: 'assistant',
-      type: 'youtube',
+      type: type,
       previewData: embedUrl ?? undefined,
     };
   }
@@ -538,7 +576,7 @@ ${csvData}`;
     }
     const contentTitle = scrapeResult.data.metadata.title || url;
     const scrapedMarkdown = scrapeResult.data.markdown;
-    setProcessingState(true, 'Analisando conteúdo com IA...', 50);
+    setProcessingState(true, 'Analisando ...', 50);
     const analysisPrompt = `O seguinte é o conteúdo em markdown de uma página da web. Analise-o e extraia um resumo detalhado, os pontos principais e as conclusões. Prepare-se para responder a perguntas sobre ele. Lembre-se, sua resposta deve ser inteiramente em português do Brasil.
 
 --- CONTEÚDO DA PÁGINA ---
@@ -606,10 +644,11 @@ Lembre-se, sua resposta deve ser inteiramente em português do Brasil.`;
 
   private async analyzeUrl(
     url: string,
+    analysisMode: 'default' | 'vibecode' | 'workflow',
     callbacks: AnalysisCallbacks,
   ): Promise<AnalysisResult> {
     if (getYouTubeVideoId(url)) {
-      return this.analyzeYouTubeUrl(url, callbacks);
+      return this.analyzeYouTubeUrl(url, analysisMode, callbacks);
     } else if (url.includes('github.com/')) {
       return this.analyzeGitHubUrl(url, callbacks);
     } else if (url.includes('docs.google.com/spreadsheets/')) {

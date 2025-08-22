@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import {LitElement, css, html} from 'lit';
+import {LitElement, css, html, svg} from 'lit';
 import {customElement, property, state} from 'lit/decorators.js';
 import type {Analysis, ProcessingState} from './types';
 
@@ -18,6 +18,8 @@ export class GdmAnalysisForm extends LitElement {
   @state() private urlInput = '';
   @state() private selectedFile: File | null = null;
   @state() private animatedProgress = 0;
+  @state() private isModeMenuOpen = false;
+  @state() private selectedMode: 'default' | 'vibecode' | 'workflow' = 'default';
   private progressAnimationId: number | null = null;
 
   static styles = css`
@@ -44,6 +46,7 @@ export class GdmAnalysisForm extends LitElement {
       padding: 4px;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
+      align-items: center;
     }
 
     .input-form input[type='text'] {
@@ -217,6 +220,59 @@ export class GdmAnalysisForm extends LitElement {
     .content-pill button:hover {
       color: #fff;
     }
+    .mode-selector-container {
+      position: relative;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mode-menu {
+      position: absolute;
+      top: calc(100% + 8px); /* Position dropdown below the button */
+      right: 0;
+      background: #2a2a2a;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 8px;
+      z-index: 10;
+      width: 280px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .mode-menu button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
+      transition: all 0.2s;
+    }
+    .mode-menu button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .mode-menu button.active {
+      border-color: #5078ff;
+      background: rgba(80, 120, 255, 0.1);
+    }
+    .mode-menu strong {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .mode-menu span {
+      font-size: 12px;
+      color: #ccc;
+      line-height: 1.4;
+    }
 
     @media (max-width: 480px) {
       .input-form {
@@ -229,9 +285,11 @@ export class GdmAnalysisForm extends LitElement {
       }
       .input-form button {
         height: 36px;
+        border-radius: 18px;
       }
       .input-form button.icon-button {
         width: 36px;
+        border-radius: 50%;
       }
       .input-form button[type='submit'] {
         padding: 0 12px;
@@ -245,6 +303,26 @@ export class GdmAnalysisForm extends LitElement {
       }
     }
   `;
+
+  connectedCallback() {
+    super.connectedCallback();
+    document.body.addEventListener('click', this.handleOutsideClick);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    document.body.removeEventListener('click', this.handleOutsideClick);
+  }
+
+  private handleOutsideClick = (e: MouseEvent) => {
+    const container = this.shadowRoot?.querySelector(
+      '.mode-selector-container',
+    );
+    if (this.isModeMenuOpen && container && !e.composedPath().includes(container)) {
+      this.isModeMenuOpen = false;
+    }
+  };
+
 
   willUpdate(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('processingState')) {
@@ -354,6 +432,7 @@ export class GdmAnalysisForm extends LitElement {
         detail: {
           urlOrTopic: this.urlInput.trim(),
           file: this.selectedFile,
+          analysisMode: this.selectedMode,
         },
         bubbles: true,
         composed: true,
@@ -362,6 +441,8 @@ export class GdmAnalysisForm extends LitElement {
     // Clear inputs after submission
     this.urlInput = '';
     this.selectedFile = null;
+    this.isModeMenuOpen = false;
+    this.selectedMode = 'default';
     const fileInput = this.shadowRoot?.getElementById(
       'file-input',
     ) as HTMLInputElement;
@@ -378,7 +459,26 @@ export class GdmAnalysisForm extends LitElement {
     );
   }
 
+  private toggleModeMenu() {
+    this.isModeMenuOpen = !this.isModeMenuOpen;
+  }
+
+  private selectMode(mode: 'default' | 'vibecode' | 'workflow') {
+    this.selectedMode = mode;
+    this.isModeMenuOpen = false;
+  }
+
+
   render() {
+    const modeIcon = () => {
+      if (this.selectedMode === 'vibecode') {
+        return svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#A9BFFF"><path d="m321-240-57-57 179-179-179-179 57-57 236 236-236 236Zm318 0-57-57 179-179-179-179 57-57 236 236-236 236Z"/></svg>`;
+      }
+      if (this.selectedMode === 'workflow') {
+         return svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#A9BFFF"><path d="M280-440v-80h-40q-50 0-85-35t-35-85v-120h80v120q0 17 11.5 28.5T240-600h40v-80h320v80h40q17 0 28.5-11.5T680-600v-120h80v120q0 50-35 85t-85 35h-40v80H280Zm-40-200q-17 0-28.5-11.5T200-680v-120h80v120H240Zm480 0v-120h80v120h-80Z"/></svg>`;
+      }
+      return svg`<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#ffffff"><path d="M440-120v-240h80v80h320v80H520v80h-80ZM120-200v-80h240v80H120Zm160-160v-80h480v80H280ZM120-520v-80h560v80H120Zm320-160v-80h240v80H440ZM120-840v-80h240v80H120Z"/></svg>`;
+    };
     return html`
       <div class="input-container">
         <form class="input-form" @submit=${this.handleAnalysisSubmit}>
@@ -386,7 +486,7 @@ export class GdmAnalysisForm extends LitElement {
             type="text"
             id="url-input"
             aria-label="URL, tópico de pesquisa ou nome do arquivo"
-            placeholder="Cole uma URL, digite um tema ou carregue um arquivo..."
+            placeholder="Cole uma URL, digite um tema ou carregue um arquivo"
             .value=${this.urlInput}
             @input=${this.handleUrlInputChange}
             ?disabled=${this.processingState.active} />
@@ -407,6 +507,39 @@ export class GdmAnalysisForm extends LitElement {
                 d="M440-320v-320H320l160-200 160 200H520v320H440ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z" />
             </svg>
           </button>
+           <div class="mode-selector-container">
+             <button
+              type="button"
+              class="icon-button mode-button"
+              @click=${this.toggleModeMenu}
+              ?disabled=${this.processingState.active}
+              title="Selecionar modo de análise"
+              aria-label="Selecionar modo de análise">
+                ${modeIcon()}
+            </button>
+            ${this.isModeMenuOpen ? html`
+              <div class="mode-menu">
+                <button
+                  class="mode-option ${this.selectedMode === 'default' ? 'active' : ''}"
+                  @click=${() => this.selectMode('default')}>
+                  <strong>Modo Padrão</strong>
+                  <span>Análise geral e abrangente do conteúdo fornecido.</span>
+                </button>
+                <button
+                  class="mode-option ${this.selectedMode === 'vibecode' ? 'active' : ''}"
+                  @click=${() => this.selectMode('vibecode')}>
+                  <strong>Vibecode</strong>
+                  <span>Análise visual e funcional de apps (para vídeos).</span>
+                </button>
+                <button
+                  class="mode-option ${this.selectedMode === 'workflow' ? 'active' : ''}"
+                  @click=${() => this.selectMode('workflow')}>
+                  <strong>Workflow</strong>
+                  <span>Analisa fluxos de trabalho (n8n) e gera o JSON.</span>
+                </button>
+              </div>
+            ` : ''}
+          </div>
           <button
             type="submit"
             aria-label="Analisar, Pesquisar ou Adicionar Contexto"

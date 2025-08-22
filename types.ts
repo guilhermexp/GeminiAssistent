@@ -16,7 +16,15 @@ export interface Analysis {
   title: string;
   source: string;
   summary: string;
-  type: 'youtube' | 'github' | 'spreadsheet' | 'file' | 'search' | 'url' | 'video';
+  type:
+    | 'youtube'
+    | 'github'
+    | 'spreadsheet'
+    | 'file'
+    | 'search'
+    | 'url'
+    | 'video'
+    | 'workflow';
   persona: 'assistant' | 'analyst';
   previewData?: string;
 }
@@ -31,7 +39,8 @@ export interface TimelineEvent {
     | 'record'
     | 'process'
     | 'connect'
-    | 'disconnect';
+    | 'disconnect'
+    | 'history';
 }
 
 export interface ProcessingState {
@@ -56,4 +65,14 @@ export interface AnalysisCallbacks {
     progress?: number,
   ) => void;
   logEvent: (message: string, type: TimelineEvent['type']) => void;
+}
+
+export interface SavedSession {
+  id: string;
+  title: string;
+  analyses: Analysis[];
+  timelineEvents: TimelineEvent[];
+  systemInstruction: string;
+  searchResults: SearchResult[];
+  activePersona: string | null;
 }
