@@ -4,10 +4,9 @@ This is a sophisticated web application that functions as a real-time, voice-dri
 
 ## Required Setup
 
-To use all features of this application, you must configure the following API keys as environment variables before building/running the project:
+To use all features of this application, you must configure the following API key as an environment variable before building/running the project:
 
 -   `API_KEY`: Your Google API key for the Gemini models.
--   `FIRECRAWL_API_KEY`: Your API key for the [Firecrawl service](https://firecrawl.dev/). This is required for analyzing content from web pages and Google Docs.
 
 ## Key Features
 
@@ -19,7 +18,7 @@ To use all features of this application, you must configure the following API ke
     -   **GitHub Repository Expert**: Provide a GitHub repository URL. The assistant analyzes its README and file structure—aided by Google Search—to answer questions about its purpose, technology, and setup.
     -   **Document Analysis**: Upload a Word document (`.doc`, `.docx`), a PDF, a Markdown file (`.md`), or an XML-based file (`.xlm`). The assistant extracts the content and can provide summaries or answer specific questions.
     -   **Deep Research**: Provide any topic (e.g., "The future of renewable energy"), and the assistant will perform a comprehensive web search using the Google Search tool to generate a structured analysis, becoming an instant expert.
-    -   **Web Pages & Google Docs**: Provide any URL, including Google Docs, and the app will scrape its content using **Firecrawl** for analysis.
+    -   **Web Pages & Google Docs**: Provide any URL, including Google Docs, and the app will analyze its content using **Google Search** as a tool.
     -   **Multimodal YouTube Analysis**: Input a YouTube URL. The multimodal AI directly processes the video's content (both visual frames and audio track), enabling it to understand and answer questions about what is shown and said.
     -   **Image Analysis**: Upload images (`.jpg`, `.png`, etc.) for detailed visual description.
 -   **Action Timeline**: A dedicated button opens a detailed, chronological log of all assistant actions, including session starts, content analyses, recordings, and errors, providing full transparency.
@@ -38,7 +37,7 @@ The application is built as a single-page application using modern web technolog
     -   The app intelligently detects the input type: a URL, a search topic, or a file.
     -   A new analysis does not replace the old one; it is **appended** to a list of knowledge sources in the component's state.
     -   For **spreadsheets**, it uses the **SheetJS (xlsx)** library; for **Word documents**, it uses **Mammoth.js**.
-    -   For URLs, the app uses the **Firecrawl API** to scrape content. For GitHub URLs, it uses the GitHub API.
+    -   For URLs, the app uses the **Google Search tool** via the Gemini API to analyze content. For GitHub URLs, it uses the GitHub API.
     -   For "Deep Research" or GitHub analysis, the **`gemini-2.5-flash`** model is temporarily given access to the **Google Search tool** to gather information and build its initial summary. This search capability is *only* used during the analysis step.
     -   The generated summary from each analysis is added to the session's context. A new composite `systemInstruction` is created and the live session is updated with this expanded knowledge.
 4.  **Timeline Logging**: A custom `logEvent` function captures and timestamps key application events, which are then displayed in a user-friendly modal.
@@ -49,7 +48,6 @@ The application is built as a single-page application using modern web technolog
 -   `index.tsx`: The main Lit component (`gdm-live-audio`) that contains the UI and all logic for recording, session management, timeline logging, and the advanced, **cumulative content analysis engine**.
 -   `visual-3d.ts`: The Three.js visualization component.
 -   `utils.ts`: Helper functions for encoding/decoding audio, and file conversions.
--   `firecrawl-utils.ts`: Abstraction for making requests to the Firecrawl API.
 -   `youtube-utils.ts`: Helper functions for parsing YouTube URLs and fetching metadata.
 -   `analyser.ts`: A wrapper for the Web Audio API's `AnalyserNode`.
 -   `*-shader.ts`: GLSL vertex and fragment shaders for the 3D objects.
