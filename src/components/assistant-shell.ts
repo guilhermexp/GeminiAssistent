@@ -108,7 +108,7 @@ export class AssistantShell extends LitElement {
       height: 100%;
       overflow: hidden;
       min-width: 200px; /* Ensure main view is always visible */
-      background-color: #2a2a2a;
+      background-color: #000000;
     }
 
     /* Disable transitions during resize for smooth dragging */

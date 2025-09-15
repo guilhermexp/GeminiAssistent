@@ -55,7 +55,13 @@ export class GdmSidebar extends LitElement {
       border-radius: 50%;
     }
 
-    .close-sidebar-button {
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .action-button {
       background: none;
       border: none;
       color: #888;
@@ -68,7 +74,7 @@ export class GdmSidebar extends LitElement {
       transition: all 0.2s ease;
     }
 
-    .close-sidebar-button:hover {
+    .action-button:hover {
       color: #fff;
       background-color: rgba(255, 255, 255, 0.1);
     }
@@ -253,6 +259,12 @@ export class GdmSidebar extends LitElement {
     );
   }
 
+  private _newAnalysis() {
+    this.dispatchEvent(
+      new CustomEvent('new-analysis', {bubbles: true, composed: true}),
+    );
+  }
+
   private _closeSidebar() {
     this.dispatchEvent(
       new CustomEvent('close-sidebar', {bubbles: true, composed: true}),
@@ -311,20 +323,36 @@ export class GdmSidebar extends LitElement {
           <span class="dot"></span>
           <span>Voice Notes</span>
         </div>
-        <button
-          class="close-sidebar-button"
-          @click=${this._closeSidebar}
-          title="Fechar painel lateral">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            height="20px"
-            viewBox="0 -960 960 960"
-            width="20px"
-            fill="currentColor">
-            <path
-              d="M560-240 320-480l240-240 56 56-184 184 184 184-56 56Z" />
-          </svg>
-        </button>
+        <div class="header-actions">
+          <button
+            class="action-button"
+            @click=${this._newAnalysis}
+            title="Nova Análise">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              height="20px"
+              viewBox="0 -960 960 960"
+              width="20px"
+              fill="currentColor">
+              <path
+                d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z" />
+            </svg>
+          </button>
+          <button
+            class="action-button"
+            @click=${this._closeSidebar}
+            title="Fechar painel lateral">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              height="20px"
+              viewBox="0 -960 960 960"
+              width="20px"
+              fill="currentColor">
+              <path
+                d="M560-240 320-480l240-240 56 56-184 184 184 184-56 56Z" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="sidebar-body">
         <div class="section">

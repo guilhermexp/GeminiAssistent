@@ -53,8 +53,8 @@ class GdmLiveAudio extends LitElement {
     this.stateService.removeAnalysis(e.detail.id);
   }
 
-  private handleSelectAnalysis(e: CustomEvent) {
-    this.stateService.setSelectedAnalysisId(e.detail.id);
+  private async handleSelectAnalysis(e: CustomEvent) {
+    await this.stateService.setSelectedAnalysisId(e.detail.id);
   }
 
   private handleUpdateAnalysis(e: CustomEvent) {
@@ -113,8 +113,8 @@ class GdmLiveAudio extends LitElement {
     this.stateService.deleteSearchHistoryItem(e.detail.searchId);
   }
 
-  private handleBack() {
-    this.stateService.setSelectedAnalysisId(null);
+  private async handleBack() {
+    await this.stateService.setSelectedAnalysisId(null);
   }
 
   private handleCloseSidebar() {
@@ -152,6 +152,7 @@ class GdmLiveAudio extends LitElement {
           @persona-change=${this.handlePersonaChange}
           @show-history=${this.handleShowHistory}
           @reset=${this.handleReset}
+          @new-analysis=${this.handleBack}
           @close-sidebar=${this.handleCloseSidebar}></gdm-sidebar>
 
         <gdm-assistant-view

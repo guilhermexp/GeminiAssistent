@@ -489,13 +489,8 @@ export class StateService {
         analyses: newAnalyses,
         systemInstruction: newSystemInstruction,
       });
-      this.setSelectedAnalysisId(newAnalysis.id);
-
-      // Reset voice session and text chat with new context
-      await this.resetSession(false);
-      // Clear chat history when context changes
-      this.setState({chatHistory: []});
-      this.initializeTextChat();
+      // This will automatically handle the context switch
+      await this.setSelectedAnalysisId(newAnalysis.id);
     } catch (err) {
       this.handleError(err, 'Falha na análise');
     } finally {
@@ -511,12 +506,10 @@ export class StateService {
       newSelectedId = newAnalyses[0]?.id || null;
     }
 
-    this.setState({analyses: newAnalyses, chatHistory: []}); // Clear chat
-    this.setSelectedAnalysisId(newSelectedId);
+    this.setState({analyses: newAnalyses});
     this.logEvent('Contexto removido.', 'info');
-    this.updateSystemInstruction();
-    await this.resetSession(false);
-    this.initializeTextChat();
+    // This will trigger the context switch to the new selected ID
+    await this.setSelectedAnalysisId(newSelectedId);
   }
 
   public async updateAnalysisSummary(analysisId: string, newSummary: string) {
@@ -584,9 +577,23 @@ export class StateService {
     this.setState({showVisualizerPanel: !!this.state.selectedAnalysisId});
   }
 
-  public setSelectedAnalysisId = (id: string | null) => {
-    this.setState({selectedAnalysisId: id});
+  public setSelectedAnalysisId = async (id: string | null) => {
+    // If the selection hasn't changed, do nothing.
+    if (this.state.selectedAnalysisId === id) {
+      return;
+    }
+
+    this.setState({
+      selectedAnalysisId: id,
+      chatHistory: [], // Clear chat history for the new context
+      lastGeneratedImages: [], // Clear generated images for the new context
+    });
     this.updateVisualizerPanelVisibility();
+
+    // Now, update the AI's "brain" to focus on the new context
+    this.updateSystemInstruction();
+    await this.resetSession(false); // Re-initialize voice session
+    this.initializeTextChat(); // Re-initialize text session
   };
 
   public async setPersona(persona: string | null) {
@@ -650,9 +657,22 @@ export class StateService {
   };
 
   private updateSystemInstruction() {
+    const {analyses, selectedAnalysisId, activePersona} = this.state;
+    let relevantAnalyses: Analysis[] = [];
+
+    // If an analysis is selected, use only that one for the context.
+    if (selectedAnalysisId) {
+      const selected = analyses.find((a) => a.id === selectedAnalysisId);
+      if (selected) {
+        relevantAnalyses = [selected];
+      }
+    }
+    // If no analysis is selected, relevantAnalyses remains empty,
+    // and the builder will create the generic, no-context prompt.
+
     const newInstruction = generateCompositeSystemInstruction(
-      this.state.analyses,
-      this.state.activePersona,
+      relevantAnalyses,
+      activePersona,
     );
     this.setState({systemInstruction: newInstruction});
   }
@@ -707,20 +727,17 @@ export class StateService {
       (s) => s.id === sessionId,
     );
     if (sessionToLoad) {
-      this.setState({
-        analyses: sessionToLoad.analyses,
-        timelineEvents: sessionToLoad.timelineEvents,
-        systemInstruction: sessionToLoad.systemInstruction,
-        searchResults: sessionToLoad.searchResults,
-        activePersona: sessionToLoad.activePersona,
-        showHistoryModal: false,
-        chatHistory: [], // Start with a fresh chat for the loaded session
-        lastGeneratedImages: [],
-      });
+      // Temporarily set analyses without triggering a context switch yet
+      this.state.analyses = sessionToLoad.analyses;
+      this.state.timelineEvents = sessionToLoad.timelineEvents;
+      this.state.searchResults = sessionToLoad.searchResults;
+      this.state.activePersona = sessionToLoad.activePersona;
+      this.state.showHistoryModal = false;
+
+      // Now, select the first analysis which will trigger the full context switch
       const selectedId = sessionToLoad.analyses[0]?.id || null;
-      this.setSelectedAnalysisId(selectedId);
-      await this.resetSession(false);
-      this.initializeTextChat();
+      await this.setSelectedAnalysisId(selectedId);
+
       this.logEvent(`Sessão "${sessionToLoad.title}" carregada.`, 'history');
     }
   }

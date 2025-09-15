@@ -279,7 +279,7 @@ export class GdmAnalysisPanel extends LitElement {
       this.dispatchEvent(new CustomEvent('export-start', {bubbles: true, composed: true}));
       try {
         const canvas = await html2canvas(this.contentWrapper, {
-          backgroundColor: '#2a2a2a',
+          backgroundColor: '#000000',
           scale: 2,
         });
         const imgData = canvas.toDataURL('image/png');
